@@ -1,3 +1,7 @@
+---
+name: finance
+description: Finanční analýzy firem Karla Obluka — bankovní výpisy, faktury, cashflow. Data z GDrive (Business Docs 2013-2024, Účetnictví Obluk 2025+). Vždy Ollama pro citlivá data.
+---
 Finance Skill — finanční analýzy firem Karla Obluka.
 
 Když je vyvolán `/finance <argumenty>`, spusť:

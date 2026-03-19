@@ -45,6 +45,47 @@ ACCOUNTING_NAMES = {
     'pineair':   'Účetnictví PineAir',
 }
 
+# Local GDrive sync path (host only — much faster than API)
+_GDRIVE_LOCAL = Path.home() / 'Library/CloudStorage/GoogleDrive-karel@obluk.com/Shared drives'
+_USE_LOCAL = _GDRIVE_LOCAL.exists()
+
+
+def _local_accounting_path(company: str, year: str) -> Path | None:
+    """Resolve accounting year folder from local GDrive sync. Returns None if not available."""
+    if not _USE_LOCAL:
+        return None
+    key = company.lower()
+    _, name_hist = COMPANY_NAMES.get(key, (None, None))
+    if not name_hist:
+        return None
+
+    # Try Účetnictví Obluk first (2025+)
+    y = int(year)
+    if y >= 2025:
+        name_new = COMPANY_NAMES[key][0]
+        p = _GDRIVE_LOCAL / 'Účetnictví Obluk' / name_new / year
+        if p.exists():
+            return p
+
+    # Business Docs: Company > Finance > Účetnictví > Year
+    acct_name = ACCOUNTING_NAMES.get(key, f'Účetnictví {name_hist}')
+    p = _GDRIVE_LOCAL / 'Business Docs' / name_hist / 'Finance' / acct_name / year
+    if p.exists():
+        return p
+    return None
+
+
+def _collect_local_files(folder: Path, extensions: set[str] = {'.pdf', '.csv', '.xlsx', '.xls'}) -> list[Path]:
+    """Recursively collect files from local folder."""
+    if not folder.exists():
+        return []
+    files = []
+    for p in sorted(folder.rglob('*')):
+        if p.is_file() and p.suffix.lower() in extensions:
+            files.append(p)
+    return files
+
+
 def _get_service():
     creds = _gdrive_mod._get_credentials()
     return build('drive', 'v3', credentials=creds)
@@ -160,11 +201,26 @@ def get_bank_statements(company: str, year: str, month: str,
     """
     Stáhne bankovní výpisy pro danou firmu, rok a měsíc.
     Vrátí seznam stažených souborů.
+    Preferuje lokální GDrive sync (host), fallback na API (kontejner).
     """
+    # Try local filesystem first (instant, no API calls)
+    local_year = _local_accounting_path(company, year)
+    if local_year:
+        # New format: year > YYYYMM > Výpisy/
+        month_dir = local_year / f"{year}{month}"
+        if month_dir.exists():
+            for sub in sorted(month_dir.iterdir()):
+                if sub.is_dir() and 'výpis' in sub.name.lower():
+                    return _collect_local_files(sub)
+            # No výpisy subfolder — return all from month
+            return _collect_local_files(month_dir)
+        # Historical format: files directly in year folder or month subfolder
+        return _collect_local_files(local_year / f"{year}_{month}") or _collect_local_files(local_year)
+
+    # Fallback: GDrive API
     service = _get_service()
     drive_id, year_folder = _navigate_to_accounting(service, company, year)
 
-    # New drive: year > YYYYMM > Výpisy/
     month_folder = find_folder(service, year_folder, f"{year}{month}", drive_id)
     if month_folder:
         vyp_folder = find_folder_contains(service, month_folder, 'výpis', drive_id)
@@ -172,7 +228,6 @@ def get_bank_statements(company: str, year: str, month: str,
             return _collect_pdfs(service, vyp_folder['id'], drive_id,
                                 cache_dir, [company, year, month, 'výpisy'])
 
-    # Historical: files directly in year folder or subfolders
     return _collect_pdfs(service, year_folder, drive_id,
                          cache_dir, [company, year, month])
 
@@ -183,14 +238,6 @@ def get_invoices(company: str, year: str, month: str, direction: str = 'both',
     Stáhne faktury pro danou firmu, rok a měsíc.
     direction: 'received' | 'issued' | 'both'
     """
-    service = _get_service()
-    drive_id, year_folder = _navigate_to_accounting(service, company, year)
-
-    month_folder = find_folder(service, year_folder, f"{year}{month}", drive_id)
-    if not month_folder:
-        # Historical: try to find invoices directly in year folder
-        month_folder = year_folder
-
     keywords = []
     if direction in ('received', 'both'):
         keywords.append('přijaté')
@@ -198,6 +245,26 @@ def get_invoices(company: str, year: str, month: str, direction: str = 'both',
         keywords.append('vydané')
     if not keywords:
         keywords.append('faktur')
+
+    # Try local filesystem first
+    local_year = _local_accounting_path(company, year)
+    if local_year:
+        month_dir = local_year / f"{year}{month}"
+        search_dir = month_dir if month_dir.exists() else local_year
+        pdf_files = []
+        for kw in keywords:
+            for sub in sorted(search_dir.iterdir()) if search_dir.exists() else []:
+                if sub.is_dir() and kw.lower() in sub.name.lower():
+                    pdf_files.extend(_collect_local_files(sub))
+        return pdf_files
+
+    # Fallback: GDrive API
+    service = _get_service()
+    drive_id, year_folder = _navigate_to_accounting(service, company, year)
+
+    month_folder = find_folder(service, year_folder, f"{year}{month}", drive_id)
+    if not month_folder:
+        month_folder = year_folder
 
     pdf_files = []
     for kw in keywords:
@@ -212,7 +279,6 @@ def get_invoices(company: str, year: str, month: str, direction: str = 'both',
 
 def list_available_years(company: str) -> dict[str, list[str]]:
     """List available years for a company across both drives."""
-    service = _get_service()
     key = company.lower()
     if key not in COMPANY_NAMES:
         raise ValueError(f"Neznámá firma: {company}")
@@ -220,7 +286,25 @@ def list_available_years(company: str) -> dict[str, list[str]]:
     name_new, name_hist = COMPANY_NAMES[key]
     result = {}
 
-    # Účetnictví Obluk
+    if _USE_LOCAL:
+        # Fast: scan local filesystem
+        p = _GDRIVE_LOCAL / 'Účetnictví Obluk' / name_new
+        if p.exists():
+            years = sorted(d.name for d in p.iterdir() if d.is_dir() and d.name.isdigit())
+            if years:
+                result['Účetnictví Obluk'] = years
+
+        acct_name = ACCOUNTING_NAMES.get(key, f'Účetnictví {name_hist}')
+        p = _GDRIVE_LOCAL / 'Business Docs' / name_hist / 'Finance' / acct_name
+        if p.exists():
+            years = sorted(d.name for d in p.iterdir() if d.is_dir() and d.name.isdigit())
+            if years:
+                result['Business Docs'] = years
+        return result
+
+    # Fallback: GDrive API
+    service = _get_service()
+
     comp_id = find_folder_ci(service, DRIVE_UCETNICTVI, name_new, DRIVE_UCETNICTVI)
     if comp_id:
         years = [f['name'] for f in ls(service, comp_id, DRIVE_UCETNICTVI)
@@ -228,7 +312,6 @@ def list_available_years(company: str) -> dict[str, list[str]]:
         if years:
             result['Účetnictví Obluk'] = sorted(years)
 
-    # Business Docs
     comp_id = find_folder_ci(service, DRIVE_BUSINESS_DOCS, name_hist, DRIVE_BUSINESS_DOCS)
     if comp_id:
         fin_id = find_folder(service, comp_id, 'Finance', DRIVE_BUSINESS_DOCS)

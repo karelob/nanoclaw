@@ -1,3 +1,7 @@
+---
+name: prep-trip
+description: Připraví kompletní podklady pro cestu — kalendář, kontakty na místě, doprava, ubytování, úkoly. Čte z cone.db a knowledge repo.
+---
 Připrav kompletní podklady pro cestu: *$ARGUMENTS*
 (Argument = destinace a/nebo datum, např. "Praha 22.4." nebo "Cannes 24.4.")
 

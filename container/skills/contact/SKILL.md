@@ -1,3 +1,7 @@
+---
+name: contact
+description: Vyhledá kontakt v cone.db (entity, emaily, kalendář, závazky, dokumenty) a vytvoří strukturovaný profil. Automaticky ukládá do knowledge/people/.
+---
 Zjisti vše o kontaktu *$ARGUMENTS* a vytvoř strukturovaný profil.
 
 *Detekce prostředí:*
