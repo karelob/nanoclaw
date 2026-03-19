@@ -85,9 +85,10 @@ function checkJob(job: SyncJob): HealthResult {
   const ageHours = (Date.now() - stat.mtimeMs) / (1000 * 60 * 60);
 
   if (ageHours > job.maxAgeHours) {
-    const ago = ageHours < 1
-      ? `${Math.round(ageHours * 60)} min`
-      : `${Math.round(ageHours)} hod`;
+    const ago =
+      ageHours < 1
+        ? `${Math.round(ageHours * 60)} min`
+        : `${Math.round(ageHours)} hod`;
     return {
       job: job.name,
       ok: false,
@@ -150,9 +151,7 @@ export function checkSyncHealth(): string | null {
 
   logger.warn({ failures }, 'Sync health check: issues found');
 
-  const lines = failures.map(
-    (f) => `⚠️ ${f.job}: ${f.issue}`,
-  );
+  const lines = failures.map((f) => `⚠️ ${f.job}: ${f.issue}`);
 
   return `*Sync health check*\n${lines.join('\n')}`;
 }
