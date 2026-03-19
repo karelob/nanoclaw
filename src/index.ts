@@ -544,7 +544,9 @@ async function main(): Promise<void> {
       // Host commands (! prefix) — intercept before storage, main group only
       const trimmed = msg.content.trim();
       if (trimmed.startsWith('!') && registeredGroups[chatJid]?.isMain) {
-        const channel = channels.find((c) => c.ownsJid(chatJid) && c.isConnected());
+        const channel = channels.find(
+          (c) => c.ownsJid(chatJid) && c.isConnected(),
+        );
         if (channel) {
           handleHostCommand(trimmed, chatJid, channel).catch((err) =>
             logger.error({ err, chatJid }, 'Host command error'),

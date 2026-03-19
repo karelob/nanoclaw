@@ -86,7 +86,12 @@ export function checkJob(job: SyncJob): HealthResult {
   const logPath = path.join(CONE_LOGS, job.logFile);
 
   if (!fs.existsSync(logPath)) {
-    return { job: job.name, ok: false, issue: 'log soubor neexistuje', launchdLabel: job.launchdLabel };
+    return {
+      job: job.name,
+      ok: false,
+      issue: 'log soubor neexistuje',
+      launchdLabel: job.launchdLabel,
+    };
   }
 
   const stat = fs.statSync(logPath);
@@ -131,7 +136,12 @@ export function checkJob(job: SyncJob): HealthResult {
       const count = match[1] || '';
       const errCount = parseInt(count, 10);
       if (job.logFile === 'email_sync.log' && errCount > 0 && errCount <= 100) {
-        return { job: job.name, ok: true, lastRun: stat.mtime, launchdLabel: job.launchdLabel };
+        return {
+          job: job.name,
+          ok: true,
+          lastRun: stat.mtime,
+          launchdLabel: job.launchdLabel,
+        };
       }
       return {
         job: job.name,
@@ -143,7 +153,12 @@ export function checkJob(job: SyncJob): HealthResult {
     }
   }
 
-  return { job: job.name, ok: true, lastRun: stat.mtime, launchdLabel: job.launchdLabel };
+  return {
+    job: job.name,
+    ok: true,
+    lastRun: stat.mtime,
+    launchdLabel: job.launchdLabel,
+  };
 }
 
 function formatAge(date: Date): string {
@@ -176,9 +191,7 @@ export function getFullHealthReport(): string {
   const results = SYNC_JOBS.map(checkJob);
   const lines = results.map((r) => {
     const ago = r.lastRun ? formatAge(r.lastRun) : '?';
-    return r.ok
-      ? `✅ ${r.job} — ${ago} ago`
-      : `⚠️ ${r.job} — ${r.issue}`;
+    return r.ok ? `✅ ${r.job} — ${ago} ago` : `⚠️ ${r.job} — ${r.issue}`;
   });
   return `*Sync Health Report*\n${lines.join('\n')}`;
 }

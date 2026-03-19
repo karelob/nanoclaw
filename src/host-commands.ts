@@ -22,7 +22,11 @@ async function reply(channel: Channel, jid: string, text: string) {
 function restartLaunchdJob(label: string): boolean {
   const plist = path.join(PLIST_DIR, `${label}.plist`);
   try {
-    try { execFileSync('launchctl', ['unload', plist], { timeout: 5000 }); } catch { /* may already be unloaded */ }
+    try {
+      execFileSync('launchctl', ['unload', plist], { timeout: 5000 });
+    } catch {
+      /* may already be unloaded */
+    }
     execFileSync('launchctl', ['load', plist], { timeout: 5000 });
     return true;
   } catch (err) {
@@ -90,7 +94,10 @@ async function cmdFix(channel: Channel, jid: string) {
   await reply(channel, jid, msg);
 }
 
-const COMMANDS: Record<string, (channel: Channel, jid: string) => Promise<void>> = {
+const COMMANDS: Record<
+  string,
+  (channel: Channel, jid: string) => Promise<void>
+> = {
   '!health': cmdHealth,
   '!restart-syncs': cmdRestartSyncs,
   '!restart': cmdRestart,
