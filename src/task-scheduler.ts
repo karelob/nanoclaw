@@ -2,7 +2,13 @@ import { ChildProcess } from 'child_process';
 import { CronExpressionParser } from 'cron-parser';
 import fs from 'fs';
 
-import { ASSISTANT_NAME, SCHEDULER_POLL_INTERVAL, TIMEZONE } from './config.js';
+import { runPostContainerHook } from './post-container.js';
+
+import {
+  ASSISTANT_NAME,
+  SCHEDULER_POLL_INTERVAL,
+  TIMEZONE,
+} from './config.js';
 import {
   ContainerOutput,
   runContainerAgent,
@@ -13,6 +19,7 @@ import {
   getDueTasks,
   getTaskById,
   logTaskRun,
+  storeMessage,
   updateTask,
   updateTaskAfterRun,
 } from './db.js';
@@ -187,6 +194,17 @@ async function runTask(
           result = streamedOutput.result;
           // Forward result to user (sendMessage handles formatting)
           await deps.sendMessage(task.chat_jid, streamedOutput.result);
+          // Store agent response for conversation history
+          storeMessage({
+            id: `bot-task-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+            chat_jid: task.chat_jid,
+            sender: ASSISTANT_NAME,
+            sender_name: ASSISTANT_NAME,
+            content: streamedOutput.result,
+            timestamp: new Date().toISOString(),
+            is_from_me: false,
+            is_bot_message: true,
+          });
           scheduleClose();
         }
         if (streamedOutput.status === 'success') {
@@ -212,6 +230,9 @@ async function runTask(
       { taskId: task.id, durationMs: Date.now() - startTime },
       'Task completed',
     );
+
+    // Post-container hook: auto-commit, promote skills, changelog
+    runPostContainerHook(task.group_folder, group?.name || task.group_folder);
   } catch (err) {
     if (closeTimer) clearTimeout(closeTimer);
     error = err instanceof Error ? err.message : String(err);

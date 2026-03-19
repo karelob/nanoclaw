@@ -58,6 +58,7 @@ import {
   shouldDropMessage,
 } from './sender-allowlist.js';
 import { handleHostCommand } from './host-commands.js';
+import { runPostContainerHook } from './post-container.js';
 import { checkSyncHealth } from './sync-health.js';
 import { startSchedulerLoop } from './task-scheduler.js';
 import { Channel, NewMessage, RegisteredGroup } from './types.js';
@@ -227,6 +228,17 @@ async function processGroupMessages(chatJid: string): Promise<boolean> {
       if (text) {
         await channel.sendMessage(chatJid, text);
         outputSentToUser = true;
+        // Store agent response for conversation history
+        storeMessage({
+          id: `bot-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+          chat_jid: chatJid,
+          sender: ASSISTANT_NAME,
+          sender_name: ASSISTANT_NAME,
+          content: raw,
+          timestamp: new Date().toISOString(),
+          is_from_me: false,
+          is_bot_message: true,
+        });
       }
       // Only reset idle timer on actual results, not session-update markers (result: null)
       resetIdleTimer();
@@ -243,6 +255,9 @@ async function processGroupMessages(chatJid: string): Promise<boolean> {
 
   await channel.setTyping?.(chatJid, false);
   if (idleTimer) clearTimeout(idleTimer);
+
+  // Post-container hook: auto-commit, promote skills, changelog
+  runPostContainerHook(group.folder, group.name);
 
   if (output === 'error' || hadError) {
     // If we already sent output to the user, don't roll back the cursor —
