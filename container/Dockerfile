@@ -23,7 +23,19 @@ RUN apt-get update && apt-get install -y \
     libxshmfence1 \
     curl \
     git \
+    sqlite3 \
+    python3 \
+    python3-pip \
+    python3-venv \
     && rm -rf /var/lib/apt/lists/*
+
+# Install Python dependencies for cone scripts
+RUN pip3 install --break-system-packages \
+    requests beautifulsoup4 lxml \
+    google-api-python-client google-auth-httplib2 google-auth-oauthlib \
+    google-genai \
+    openai anthropic \
+    python-dotenv rich click
 
 # Set Chromium path for agent-browser
 ENV AGENT_BROWSER_EXECUTABLE_PATH=/usr/bin/chromium

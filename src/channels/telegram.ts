@@ -1,10 +1,14 @@
+import fs from 'fs';
 import https from 'https';
+import path from 'path';
 import { Api, Bot } from 'grammy';
 
 import { ASSISTANT_NAME, TRIGGER_PATTERN } from '../config.js';
+import { STORE_DIR } from '../config.js';
 import { readEnvFile } from '../env.js';
 import { logger } from '../logger.js';
 import { registerChannel, ChannelOpts } from './registry.js';
+import { transcribeAudio } from '../transcription.js';
 import {
   Channel,
   OnChatMetadata,
@@ -195,7 +199,58 @@ export class TelegramChannel implements Channel {
 
     this.bot.on('message:photo', (ctx) => storeNonText(ctx, '[Photo]'));
     this.bot.on('message:video', (ctx) => storeNonText(ctx, '[Video]'));
-    this.bot.on('message:voice', (ctx) => storeNonText(ctx, '[Voice message]'));
+
+    // Voice messages: download audio and transcribe via Whisper
+    this.bot.on('message:voice', async (ctx) => {
+      const chatJid = `tg:${ctx.chat.id}`;
+      const group = this.opts.registeredGroups()[chatJid];
+      if (!group) return;
+
+      const timestamp = new Date(ctx.message.date * 1000).toISOString();
+      const senderName =
+        ctx.from?.first_name ||
+        ctx.from?.username ||
+        ctx.from?.id?.toString() ||
+        'Unknown';
+
+      const isGroup =
+        ctx.chat.type === 'group' || ctx.chat.type === 'supergroup';
+      this.opts.onChatMetadata(
+        chatJid,
+        timestamp,
+        undefined,
+        'telegram',
+        isGroup,
+      );
+
+      let content = '[Voice message - transcription unavailable]';
+
+      try {
+        const file = await ctx.getFile();
+        const fileUrl = `https://api.telegram.org/file/bot${this.botToken}/${file.file_path}`;
+        const response = await fetch(fileUrl);
+        if (response.ok) {
+          const audioBuffer = Buffer.from(await response.arrayBuffer());
+          const transcript = await transcribeAudio(audioBuffer, 'voice.ogg');
+          if (transcript) {
+            content = `[Voice: ${transcript}]`;
+          }
+        }
+      } catch (err) {
+        logger.error({ err }, 'Failed to download/transcribe voice message');
+      }
+
+      this.opts.onMessage(chatJid, {
+        id: ctx.message.message_id.toString(),
+        chat_jid: chatJid,
+        sender: ctx.from?.id?.toString() || '',
+        sender_name: senderName,
+        content,
+        timestamp,
+        is_from_me: false,
+      });
+    });
+
     this.bot.on('message:audio', (ctx) => storeNonText(ctx, '[Audio]'));
     this.bot.on('message:document', (ctx) => {
       const name = ctx.message.document?.file_name || 'file';
@@ -254,6 +309,18 @@ export class TelegramChannel implements Channel {
         }
       }
       logger.info({ jid, length: text.length }, 'Telegram message sent');
+
+      // Log outbound message content for debugging (retain 30 days)
+      try {
+        const logFile = path.join(STORE_DIR, 'outbound-messages.jsonl');
+        const entry = JSON.stringify({
+          ts: new Date().toISOString(),
+          jid,
+          length: text.length,
+          content: text,
+        });
+        fs.appendFileSync(logFile, entry + '\n');
+      } catch { /* non-critical */ }
     } catch (err) {
       logger.error({ jid, err }, 'Failed to send Telegram message');
     }
