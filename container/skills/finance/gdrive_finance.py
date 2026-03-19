@@ -12,11 +12,13 @@ import io
 from pathlib import Path
 from typing import Optional
 
-sys.path.insert(0, '/workspace/extra/cone-scripts')
+# Shared path resolution (container vs host)
+sys.path.insert(0, str(Path(__file__).parent.parent))
+from paths import TOKEN_FILE, ensure_cone_scripts_importable
 
-# Setup credentials
+ensure_cone_scripts_importable()
 import connectors.gdrive as _gdrive_mod
-_gdrive_mod.TOKEN_FILE = Path('/workspace/extra/cone-config/token.json')
+_gdrive_mod.TOKEN_FILE = TOKEN_FILE
 
 from googleapiclient.discovery import build
 from googleapiclient.http import MediaIoBaseDownload

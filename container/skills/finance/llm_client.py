@@ -52,14 +52,14 @@ class LLMClient:
         return r.json().get('response', '')
 
     def _openai(self, prompt: str, system: str = '', max_tokens: int = 4096) -> str:
+        import sys
         from pathlib import Path
-        env_file = Path('/workspace/extra/cone-config/.env')
-        api_key = None
-        if env_file.exists():
-            for line in env_file.read_text().splitlines():
-                if line.startswith('OPENAI_API_KEY='):
-                    api_key = line.split('=', 1)[1].strip()
-        api_key = api_key or os.environ.get('OPENAI_API_KEY')
+        sys.path.insert(0, str(Path(__file__).parent.parent))
+        from paths import load_env_var
+        try:
+            api_key = load_env_var('OPENAI_API_KEY')
+        except RuntimeError:
+            api_key = None
         if not api_key:
             raise ValueError("OPENAI_API_KEY nenalezen")
 
@@ -84,13 +84,14 @@ class LLMClient:
         return result['choices'][0]['message']['content']
 
     def _gemini(self, prompt: str, system: str = '') -> str:
+        import sys
         from pathlib import Path
-        env_file = Path('/workspace/extra/cone-config/.env')
-        api_key = None
-        if env_file.exists():
-            for line in env_file.read_text().splitlines():
-                if line.startswith('GOOGLE_AI_API_KEY='):
-                    api_key = line.split('=', 1)[1].strip()
+        sys.path.insert(0, str(Path(__file__).parent.parent))
+        from paths import load_env_var
+        try:
+            api_key = load_env_var('GOOGLE_AI_API_KEY')
+        except RuntimeError:
+            api_key = None
         if not api_key:
             raise ValueError("GOOGLE_AI_API_KEY nenalezen")
 

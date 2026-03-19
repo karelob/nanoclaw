@@ -13,17 +13,17 @@ import re
 import json
 from pathlib import Path
 
-# Nastav cestu pro cone-scripts
-sys.path.insert(0, '/workspace/extra/cone-scripts')
+# Shared path resolution (container vs host)
+sys.path.insert(0, str(Path(__file__).parent.parent))
+from paths import CONE_SCRIPTS, TOKEN_FILE, CACHE_DIR, ensure_cone_scripts_importable
+
+ensure_cone_scripts_importable()
 import connectors.gdrive as _gdrive_mod
-_gdrive_mod.TOKEN_FILE = Path('/workspace/extra/cone-config/token.json')
+_gdrive_mod.TOKEN_FILE = TOKEN_FILE
 
 from parsers import parse_kb_bank_statement, parse_xlsx_cashflow, parse_pdf_text, BankStatement
 from llm_client import LLMClient, FINANCE_SYSTEM_PROMPT
 from gdrive_finance import get_bank_statements, get_invoices
-
-
-CACHE_DIR = Path('/tmp/finance_cache')
 
 
 def fmt_czk(amount: float) -> str:

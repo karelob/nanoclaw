@@ -1,6 +1,15 @@
 Připrav kompletní podklady pro cestu: *$ARGUMENTS*
 (Argument = destinace a/nebo datum, např. "Praha 22.4." nebo "Cannes 24.4.")
 
+*Detekce prostředí:*
+```bash
+if [ -f /workspace/local-db/cone.db ]; then
+  DB=/workspace/local-db/cone.db
+elif [ -f "$HOME/Develop/nano-cone/cone/db/cone.db" ]; then
+  DB="$HOME/Develop/nano-cone/cone/db/cone.db"
+fi
+```
+
 *DŮLEŽITÉ — Email aliasy:*
 • `karel@obluk.com` a `karel@pinehill.cz` jsou ALIASY téhož Gmail účtu
 • Při KAŽDÉM hledání zahrnout obě domény
@@ -9,7 +18,7 @@ Připrav kompletní podklady pro cestu: *$ARGUMENTS*
 
 ```bash
 # Najdi události v daném období (oba kalendáře)
-sqlite3 /workspace/local-db/cone.db "
+sqlite3 $DB "
 SELECT summary, start_dt, end_dt, location, description, attendees, all_day
 FROM events
 WHERE calendar_id IN ('karel@obluk.com','karel.obluk@evolutionequity.com')
@@ -28,7 +37,7 @@ Pro každého účastníka schůzek zjisti profil z DB (entity, fakta, poslední
 
 ```bash
 # Kontakty v destinaci (z faktů)
-sqlite3 /workspace/local-db/cone.db "
+sqlite3 $DB "
 SELECT e.name, f.value FROM entities e
 JOIN facts f ON e.id = f.entity_id
 WHERE f.key = 'adresa' AND f.value LIKE '%[destinace]%' AND e.type = 'person';"
@@ -40,7 +49,7 @@ Primární zdroj = kalendář. "Brno Transport" = objednaná služba přes Janu,
 
 ```bash
 # Hledej v emailech potvrzení dopravy
-sqlite3 /workspace/local-db/cone.db "
+sqlite3 $DB "
 SELECT subject, from_addr, sent_at, body FROM emails
 WHERE (from_addr LIKE '%transportservis%' OR subject LIKE '%jízdenk%' OR subject LIKE '%RegioJet%' OR subject LIKE '%Flight%')
 AND sent_at >= '[datum_od - 14 dní]'
@@ -53,7 +62,7 @@ Primární = celodenní kalendářová událost s názvem hotelu. Sekundárně h
 
 *5. Úkoly pro cestu*
 ```bash
-sqlite3 /workspace/local-db/cone.db "
+sqlite3 $DB "
 SELECT id, description, trip_date FROM trip_tasks
 WHERE location LIKE '%[destinace]%' AND status = 'open';"
 ```
