@@ -57,6 +57,7 @@ import {
   loadSenderAllowlist,
   shouldDropMessage,
 } from './sender-allowlist.js';
+import { handleHostCommand } from './host-commands.js';
 import { checkSyncHealth } from './sync-health.js';
 import { startSchedulerLoop } from './task-scheduler.js';
 import { Channel, NewMessage, RegisteredGroup } from './types.js';
@@ -540,8 +541,19 @@ async function main(): Promise<void> {
   // Channel callbacks (shared by all channels)
   const channelOpts = {
     onMessage: (chatJid: string, msg: NewMessage) => {
-      // Remote control commands — intercept before storage
+      // Host commands (! prefix) — intercept before storage, main group only
       const trimmed = msg.content.trim();
+      if (trimmed.startsWith('!') && registeredGroups[chatJid]?.isMain) {
+        const channel = channels.find((c) => c.ownsJid(chatJid) && c.isConnected());
+        if (channel) {
+          handleHostCommand(trimmed, chatJid, channel).catch((err) =>
+            logger.error({ err, chatJid }, 'Host command error'),
+          );
+        }
+        return;
+      }
+
+      // Remote control commands — intercept before storage
       if (trimmed === '/remote-control' || trimmed === '/remote-control-end') {
         handleRemoteControl(trimmed, chatJid, msg).catch((err) =>
           logger.error({ err, chatJid }, 'Remote control command error'),
