@@ -75,12 +75,24 @@ async function transcribeLocal(
   const url = `${serverUrl}/v1/audio/transcriptions`;
 
   const { execFileSync } = await import('child_process');
-  const stdout = execFileSync('curl', [
-    '-s', '--connect-timeout', '10', '--max-time', '30',
-    '-X', 'POST', url,
-    '-F', `file=@${tmpFile}`,
-    '-F', 'language=cs',
-  ], { timeout: 35_000 });
+  const stdout = execFileSync(
+    'curl',
+    [
+      '-s',
+      '--connect-timeout',
+      '10',
+      '--max-time',
+      '30',
+      '-X',
+      'POST',
+      url,
+      '-F',
+      `file=@${tmpFile}`,
+      '-F',
+      'language=cs',
+    ],
+    { timeout: 35_000 },
+  );
 
   const data = JSON.parse(stdout.toString()) as { text?: string };
   return { text: data.text?.trim() || null, ms: Date.now() - t0 };
@@ -158,20 +170,26 @@ export async function transcribeAudio(
       const sampleName = `${Date.now()}-${filename}`;
       fs.copyFileSync(tmpFile, path.join(samplesDir, sampleName));
       sampleFile = sampleName;
-    } catch { /* non-critical */ }
+    } catch {
+      /* non-critical */
+    }
 
     // A/B comparison mode: both Groq and Local available
     if (groqKey && localUrl) {
       try {
         const [groqResult, localResult] = await Promise.all([
-          transcribeGroq(tmpFile, groqKey).catch((err): { text: string | null; ms: number } => {
-            logger.warn({ err }, 'Groq transcription failed in A/B mode');
-            return { text: null, ms: 0 };
-          }),
-          transcribeLocal(tmpFile, localUrl).catch((err): { text: string | null; ms: number } => {
-            logger.warn({ err }, 'Local transcription failed in A/B mode');
-            return { text: null, ms: 0 };
-          }),
+          transcribeGroq(tmpFile, groqKey).catch(
+            (err): { text: string | null; ms: number } => {
+              logger.warn({ err }, 'Groq transcription failed in A/B mode');
+              return { text: null, ms: 0 };
+            },
+          ),
+          transcribeLocal(tmpFile, localUrl).catch(
+            (err): { text: string | null; ms: number } => {
+              logger.warn({ err }, 'Local transcription failed in A/B mode');
+              return { text: null, ms: 0 };
+            },
+          ),
         ]);
 
         logComparison(groqResult, localResult, fileSize, sampleFile);
@@ -192,7 +210,10 @@ export async function transcribeAudio(
           return localResult.text;
         }
       } catch (err) {
-        logger.warn({ err }, 'A/B comparison failed, trying individual providers');
+        logger.warn(
+          { err },
+          'A/B comparison failed, trying individual providers',
+        );
       }
     }
 

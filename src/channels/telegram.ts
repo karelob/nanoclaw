@@ -320,7 +320,9 @@ export class TelegramChannel implements Channel {
           content: text,
         });
         fs.appendFileSync(logFile, entry + '\n');
-      } catch { /* non-critical */ }
+      } catch {
+        /* non-critical */
+      }
     } catch (err) {
       logger.error({ jid, err }, 'Failed to send Telegram message');
     }
