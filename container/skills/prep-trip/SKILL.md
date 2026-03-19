@@ -9,7 +9,7 @@ Připrav kompletní podklady pro cestu: *$ARGUMENTS*
 
 ```bash
 # Najdi události v daném období (oba kalendáře)
-sqlite3 /workspace/extra/cone-db/cone.db "
+sqlite3 /workspace/local-db/cone.db "
 SELECT summary, start_dt, end_dt, location, description, attendees, all_day
 FROM events
 WHERE calendar_id IN ('karel@obluk.com','karel.obluk@evolutionequity.com')
@@ -28,7 +28,7 @@ Pro každého účastníka schůzek zjisti profil z DB (entity, fakta, poslední
 
 ```bash
 # Kontakty v destinaci (z faktů)
-sqlite3 /workspace/extra/cone-db/cone.db "
+sqlite3 /workspace/local-db/cone.db "
 SELECT e.name, f.value FROM entities e
 JOIN facts f ON e.id = f.entity_id
 WHERE f.key = 'adresa' AND f.value LIKE '%[destinace]%' AND e.type = 'person';"
@@ -40,7 +40,7 @@ Primární zdroj = kalendář. "Brno Transport" = objednaná služba přes Janu,
 
 ```bash
 # Hledej v emailech potvrzení dopravy
-sqlite3 /workspace/extra/cone-db/cone.db "
+sqlite3 /workspace/local-db/cone.db "
 SELECT subject, from_addr, sent_at, body FROM emails
 WHERE (from_addr LIKE '%transportservis%' OR subject LIKE '%jízdenk%' OR subject LIKE '%RegioJet%' OR subject LIKE '%Flight%')
 AND sent_at >= '[datum_od - 14 dní]'
@@ -53,7 +53,7 @@ Primární = celodenní kalendářová událost s názvem hotelu. Sekundárně h
 
 *5. Úkoly pro cestu*
 ```bash
-sqlite3 /workspace/extra/cone-db/cone.db "
+sqlite3 /workspace/local-db/cone.db "
 SELECT id, description, trip_date FROM trip_tasks
 WHERE location LIKE '%[destinace]%' AND status = 'open';"
 ```
