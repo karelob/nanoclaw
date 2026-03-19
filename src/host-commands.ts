@@ -35,6 +35,32 @@ function restartLaunchdJob(label: string): boolean {
   }
 }
 
+async function cmdHelp(channel: Channel, jid: string) {
+  const msg = [
+    '*Dostupné příkazy*',
+    '',
+    '_Host příkazy (bez AI):_',
+    '`!help` — tento přehled',
+    '`!health` — stav sync jobů',
+    '`!fix` — auto-diagnóza + restart selhávajících',
+    '`!restart-syncs` — restart všech sync LaunchAgentů',
+    '`!restart` — restart NanoClaw',
+    '',
+    '_Agent skills (AI v kontejneru):_',
+    '`/contact <jméno>` — profil osoby z cone.db',
+    '`/prep-trip <destinace datum>` — příprava cesty',
+    '`/finance <firma> <rok/měsíc> <akce>` — finanční analýza',
+    '  Firmy: baker, pinehill, pinehouse, pineinvest, pineair',
+    '  Akce: výpis, faktury',
+    '',
+    '_Přirozený jazyk:_',
+    '"Co mám zítra?" — kalendář',
+    '"Emaily od X" — prohledá cone.db',
+    '"Kdo je Y?" — profil osoby',
+  ].join('\n');
+  await reply(channel, jid, msg);
+}
+
 async function cmdHealth(channel: Channel, jid: string) {
   const report = getFullHealthReport();
   await reply(channel, jid, report);
@@ -98,6 +124,7 @@ const COMMANDS: Record<
   string,
   (channel: Channel, jid: string) => Promise<void>
 > = {
+  '!help': cmdHelp,
   '!health': cmdHealth,
   '!restart-syncs': cmdRestartSyncs,
   '!restart': cmdRestart,
