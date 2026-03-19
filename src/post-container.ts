@@ -78,7 +78,10 @@ function detectNewSkills(groupFolder: string): string[] {
       promoted.push(name);
       logger.info({ skill: name }, 'Post-container: promoted new skill');
     } catch (err) {
-      logger.warn({ err, skill: name }, 'Post-container: failed to promote skill');
+      logger.warn(
+        { err, skill: name },
+        'Post-container: failed to promote skill',
+      );
     }
   }
   return promoted;
@@ -111,7 +114,10 @@ function detectNewScripts(groupFolder: string): string[] {
       promoted.push(name);
       logger.info({ script: name }, 'Post-container: promoted new script');
     } catch (err) {
-      logger.warn({ err, script: name }, 'Post-container: failed to promote script');
+      logger.warn(
+        { err, script: name },
+        'Post-container: failed to promote script',
+      );
     }
   }
   return promoted;
@@ -123,7 +129,11 @@ function appendChangelog(
   promotedSkills: string[],
   promotedScripts: string[],
 ): void {
-  if (!knowledgeChanges && promotedSkills.length === 0 && promotedScripts.length === 0) {
+  if (
+    !knowledgeChanges &&
+    promotedSkills.length === 0 &&
+    promotedScripts.length === 0
+  ) {
     return;
   }
 
@@ -180,10 +190,19 @@ export function runPostContainerHook(
       );
 
       // 3. Append to changelog (before committing nanoclaw repo)
-      appendChangelog(groupName, knowledgeChanges, promotedSkills, promotedScripts);
+      appendChangelog(
+        groupName,
+        knowledgeChanges,
+        promotedSkills,
+        promotedScripts,
+      );
 
       // 4. If knowledge changelog was updated, commit that too
-      if (knowledgeChanges || promotedSkills.length > 0 || promotedScripts.length > 0) {
+      if (
+        knowledgeChanges ||
+        promotedSkills.length > 0 ||
+        promotedScripts.length > 0
+      ) {
         autoCommit(KNOWLEDGE_REPO_PATH, `auto: changelog update`);
       }
 

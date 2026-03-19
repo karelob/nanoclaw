@@ -4,11 +4,7 @@ import fs from 'fs';
 
 import { runPostContainerHook } from './post-container.js';
 
-import {
-  ASSISTANT_NAME,
-  SCHEDULER_POLL_INTERVAL,
-  TIMEZONE,
-} from './config.js';
+import { ASSISTANT_NAME, SCHEDULER_POLL_INTERVAL, TIMEZONE } from './config.js';
 import {
   ContainerOutput,
   runContainerAgent,
