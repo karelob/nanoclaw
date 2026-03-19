@@ -1,6 +1,7 @@
 """
 GDrive Finance Downloader
 Stahuje finanční dokumenty z Google Drive.
+Naviguje po jménech složek (žádné hardcoded folder IDs).
 Dva zdroje:
   - Účetnictví Obluk (2025+) — strukturované měsíční složky
   - Business Docs (2013–2024) — historické účetnictví po rocích
@@ -8,7 +9,6 @@ Read-only — nikdy nemodifikuje zdrojová data.
 """
 import sys
 import io
-import json
 from pathlib import Path
 from typing import Optional
 
@@ -21,47 +21,36 @@ _gdrive_mod.TOKEN_FILE = Path('/workspace/extra/cone-config/token.json')
 from googleapiclient.discovery import build
 from googleapiclient.http import MediaIoBaseDownload
 
-# Shared drive: Účetnictví Obluk (2025+, structured monthly)
-DRIVE_UCETNICTVI = '0ANtUxhg1AfrCUk9PVA'
-COMPANY_FOLDERS_NEW = {
-    'baker':     '1fIf_kPTPggxw_KJwiMEfClabO_b1Gw35',
-    'pinehill':  '1LqkTy7RV-umhlU_lJRMwmKtFy7AjfN1w',
-    'pinehouse': '1gVluMW-KRGkdwlkxBAp3-QDsbgXVlhzG',
-    'pineinvest':'1Jir9F5CO0v6MxZARy8Fmkxapd3MbV2-8',
-    'pineair':   '1TdatGQksDHSDW7qTU2v6DFNo8OXe8ftk',
+# Only drive IDs are constant (these never change)
+DRIVE_UCETNICTVI = '0ANtUxhg1AfrCUk9PVA'   # Účetnictví Obluk
+DRIVE_BUSINESS_DOCS = '0AP8QHGiPCrqnUk9PVA'  # Business Docs
+
+# Company name mapping: key → (name on Účetnictví Obluk, name on Business Docs)
+COMPANY_NAMES = {
+    'baker':     ('Baker Estates', 'Baker estates'),
+    'pinehill':  ('Pinehill',      'Pinehill'),
+    'pinehouse': ('PineHouse',     'PineHouse'),
+    'pineinvest':('PineInvest',    'PineInvest'),
+    'pineair':   ('PineAir',       'PineAir'),
 }
 
-# Shared drive: Business Docs (2013–2024, historical accounting)
-DRIVE_BUSINESS_DOCS = '0AP8QHGiPCrqnUk9PVA'
-COMPANY_FOLDERS_HIST = {
-    'baker':     '1ZFK14C-LTDaTV0_rgtL6NETujOdggQrC',
-    'pinehill':  '1tXR2Qa-Wr4PkDe4i3XHzUiZQfcv6VJgs',
-    'pinehouse': '17MEMg3e89NqBzThn9nGWigswOo4srCsE',
-    'pineinvest':'1062-pGpBZpT30pr9Yxw2rQNuN__pN89l',
-    'pineair':   '1CEKLFKubaVtDaL2j7-T6s87O-e_doh9R',
+# Accounting folder names per company on Business Docs
+ACCOUNTING_NAMES = {
+    'baker':     'Účetnictví Baker',
+    'pinehill':  'Účetnictví Pinehill',
+    'pinehouse': 'Účetnictví PineHouse',
+    'pineinvest':'Účetnictví',
+    'pineair':   'Účetnictví PineAir',
 }
-
-def _resolve_company(company: str, year: str):
-    """Return (drive_id, folder_id) based on year — new drive for 2025+, historical for older."""
-    y = int(year)
-    if y >= 2025 and company.lower() in COMPANY_FOLDERS_NEW:
-        return DRIVE_UCETNICTVI, COMPANY_FOLDERS_NEW[company.lower()]
-    if company.lower() in COMPANY_FOLDERS_HIST:
-        return DRIVE_BUSINESS_DOCS, COMPANY_FOLDERS_HIST[company.lower()]
-    raise ValueError(f"Neznámá firma: {company}")
-
-# Keep backward compat
-DRIVE_ID = DRIVE_UCETNICTVI
-COMPANY_FOLDERS = COMPANY_FOLDERS_NEW
 
 def _get_service():
     creds = _gdrive_mod._get_credentials()
     return build('drive', 'v3', credentials=creds)
 
-def ls(service, folder_id: str, drive_id: str = DRIVE_UCETNICTVI) -> list:
-    """List files in folder."""
+def ls(service, folder_id: str, drive_id: str) -> list:
+    """List files/folders in a folder."""
     r = service.files().list(
-        q=f"'{folder_id}' in parents",
+        q=f"'{folder_id}' in parents and trashed=false",
         driveId=drive_id, corpora='drive',
         includeItemsFromAllDrives=True, supportsAllDrives=True,
         fields='files(id,name,mimeType,size,fileExtension)',
@@ -69,14 +58,21 @@ def ls(service, folder_id: str, drive_id: str = DRIVE_UCETNICTVI) -> list:
     ).execute()
     return r.get('files', [])
 
-def find_folder(service, parent_id: str, name: str, drive_id: str = DRIVE_UCETNICTVI) -> Optional[str]:
-    """Find subfolder by name, return id or None."""
+def find_folder(service, parent_id: str, name: str, drive_id: str) -> Optional[str]:
+    """Find subfolder by exact name, return id or None."""
     for f in ls(service, parent_id, drive_id):
         if f['name'] == name and 'folder' in f['mimeType']:
             return f['id']
     return None
 
-def find_folder_contains(service, parent_id: str, keyword: str, drive_id: str = DRIVE_UCETNICTVI) -> Optional[dict]:
+def find_folder_ci(service, parent_id: str, name: str, drive_id: str) -> Optional[str]:
+    """Find subfolder by case-insensitive name."""
+    for f in ls(service, parent_id, drive_id):
+        if f['name'].lower() == name.lower() and 'folder' in f['mimeType']:
+            return f['id']
+    return None
+
+def find_folder_contains(service, parent_id: str, keyword: str, drive_id: str) -> Optional[dict]:
     """Find subfolder containing keyword in name."""
     for f in ls(service, parent_id, drive_id):
         if keyword.lower() in f['name'].lower() and 'folder' in f['mimeType']:
@@ -95,54 +91,89 @@ def download_file(service, file_id: str, dest_path: Path) -> bool:
     dest_path.write_bytes(buf.getvalue())
     return True
 
-def get_bank_statements(company: str, year: str, month: str, cache_dir: Path = Path('/tmp/finance_cache')) -> list[Path]:
-    """
-    Stáhne bankovní výpisy pro danou firmu, rok a měsíc.
-    Vrátí seznam stažených PDF souborů.
-    company: 'baker', 'pinehill', etc.
-    year: '2025'
-    month: '03' (dvouciferný)
-    """
-    service = _get_service()
-    drive_id, company_id = _resolve_company(company, year)
-
-    # Navigate: firma > rok > YYYYMM > Výpisy... (new drive)
-    # or: firma > Finance > Účetnictví > rok > ... (Business Docs)
-    year_folder = find_folder(service, company_id, year, drive_id)
-    if not year_folder:
-        raise FileNotFoundError(f"Složka roku {year} nenalezena pro {company}")
-
-    # New drive (Účetnictví Obluk): rok > YYYYMM > Výpisy
-    # Historical (Business Docs): rok > contains files directly or subfolders
-    month_folder = find_folder(service, year_folder, f"{year}{month}", drive_id)
-    if month_folder:
-        vyp_folder = find_folder_contains(service, month_folder, 'výpis', drive_id)
-        if not vyp_folder:
-            raise FileNotFoundError(f"Složka výpisů nenalezena v {year}{month}")
-        search_id = vyp_folder['id']
-    else:
-        # Historical drive: files may be directly in year folder
-        search_id = year_folder
-
-    files = ls(service, search_id, drive_id)
+def _collect_pdfs(service, folder_id: str, drive_id: str,
+                  cache_dir: Path, prefix_parts: list[str]) -> list[Path]:
+    """Recursively collect PDF files from a folder tree."""
     pdf_files = []
-
-    for f in files:
+    for f in ls(service, folder_id, drive_id):
         if 'folder' in f['mimeType']:
-            # Podadresář (KB, FIO, apod.) — stáhnout vše z něj
-            for sf in ls(service, f['id']):
-                if sf.get('fileExtension', '').lower() == 'pdf':
-                    dest = cache_dir / company / year / month / f['name'] / sf['name']
-                    if not dest.exists():
-                        download_file(service, sf['id'], dest)
-                    pdf_files.append(dest)
-        elif f.get('fileExtension', '').lower() == 'pdf':
-            dest = cache_dir / company / year / month / f['name']
+            pdf_files.extend(_collect_pdfs(
+                service, f['id'], drive_id, cache_dir, prefix_parts + [f['name']]))
+        elif f.get('fileExtension', '').lower() in ('pdf', 'csv', 'xlsx', 'xls'):
+            dest = cache_dir / '/'.join(prefix_parts) / f['name']
             if not dest.exists():
                 download_file(service, f['id'], dest)
             pdf_files.append(dest)
-
     return pdf_files
+
+def _navigate_to_accounting(service, company: str, year: str):
+    """
+    Navigate to the accounting year folder.
+    Returns (drive_id, year_folder_id) or raises FileNotFoundError.
+    Tries Účetnictví Obluk first (2025+), then Business Docs.
+    """
+    key = company.lower()
+    if key not in COMPANY_NAMES:
+        raise ValueError(f"Neznámá firma: {company}. Dostupné: {list(COMPANY_NAMES.keys())}")
+
+    name_new, name_hist = COMPANY_NAMES[key]
+    y = int(year)
+
+    # Try Účetnictví Obluk first (for 2025+)
+    if y >= 2025:
+        comp_id = find_folder_ci(service, DRIVE_UCETNICTVI, name_new, DRIVE_UCETNICTVI)
+        if comp_id:
+            year_id = find_folder(service, comp_id, year, DRIVE_UCETNICTVI)
+            if year_id:
+                return DRIVE_UCETNICTVI, year_id
+
+    # Business Docs: Company > Finance > Účetnictví > Year
+    comp_id = find_folder_ci(service, DRIVE_BUSINESS_DOCS, name_hist, DRIVE_BUSINESS_DOCS)
+    if not comp_id:
+        raise FileNotFoundError(f"Firma {company} nenalezena na žádném drive")
+
+    fin_id = find_folder(service, comp_id, 'Finance', DRIVE_BUSINESS_DOCS)
+    if not fin_id:
+        raise FileNotFoundError(f"Složka Finance nenalezena pro {company}")
+
+    acct_name = ACCOUNTING_NAMES.get(key, f'Účetnictví {name_hist}')
+    acct_id = find_folder(service, fin_id, acct_name, DRIVE_BUSINESS_DOCS)
+    if not acct_id:
+        # Try fuzzy match
+        acct_folder = find_folder_contains(service, fin_id, 'účetnictví', DRIVE_BUSINESS_DOCS)
+        if acct_folder:
+            acct_id = acct_folder['id']
+    if not acct_id:
+        raise FileNotFoundError(f"Účetnictví nenalezena pro {company}")
+
+    year_id = find_folder(service, acct_id, year, DRIVE_BUSINESS_DOCS)
+    if not year_id:
+        raise FileNotFoundError(f"Rok {year} nenalezen pro {company}")
+
+    return DRIVE_BUSINESS_DOCS, year_id
+
+
+def get_bank_statements(company: str, year: str, month: str,
+                        cache_dir: Path = Path('/tmp/finance_cache')) -> list[Path]:
+    """
+    Stáhne bankovní výpisy pro danou firmu, rok a měsíc.
+    Vrátí seznam stažených souborů.
+    """
+    service = _get_service()
+    drive_id, year_folder = _navigate_to_accounting(service, company, year)
+
+    # New drive: year > YYYYMM > Výpisy/
+    month_folder = find_folder(service, year_folder, f"{year}{month}", drive_id)
+    if month_folder:
+        vyp_folder = find_folder_contains(service, month_folder, 'výpis', drive_id)
+        if vyp_folder:
+            return _collect_pdfs(service, vyp_folder['id'], drive_id,
+                                cache_dir, [company, year, month, 'výpisy'])
+
+    # Historical: files directly in year folder or subfolders
+    return _collect_pdfs(service, year_folder, drive_id,
+                         cache_dir, [company, year, month])
+
 
 def get_invoices(company: str, year: str, month: str, direction: str = 'both',
                  cache_dir: Path = Path('/tmp/finance_cache')) -> list[Path]:
@@ -151,41 +182,78 @@ def get_invoices(company: str, year: str, month: str, direction: str = 'both',
     direction: 'received' | 'issued' | 'both'
     """
     service = _get_service()
-    company_id = COMPANY_FOLDERS.get(company.lower())
-    if not company_id:
-        raise ValueError(f"Neznámá firma: {company}")
+    drive_id, year_folder = _navigate_to_accounting(service, company, year)
 
-    year_folder = find_folder(service, company_id, year)
-    if not year_folder:
-        raise FileNotFoundError(f"Složka roku {year} nenalezena")
-
-    month_folder = find_folder(service, year_folder, f"{year}{month}")
+    month_folder = find_folder(service, year_folder, f"{year}{month}", drive_id)
     if not month_folder:
-        raise FileNotFoundError(f"Složka {year}{month} nenalezena")
+        # Historical: try to find invoices directly in year folder
+        month_folder = year_folder
 
     keywords = []
     if direction in ('received', 'both'):
         keywords.append('přijaté')
     if direction in ('issued', 'both'):
         keywords.append('vydané')
+    if not keywords:
+        keywords.append('faktur')
 
     pdf_files = []
     for kw in keywords:
-        folder = find_folder_contains(service, month_folder, kw)
-        if not folder:
-            continue
-        for f in ls(service, folder['id']):
-            if f.get('fileExtension', '').lower() == 'pdf':
-                dest = cache_dir / company / year / month / 'faktury' / kw / f['name']
-                if not dest.exists():
-                    download_file(service, f['id'], dest)
-                pdf_files.append(dest)
+        folder = find_folder_contains(service, month_folder, kw, drive_id)
+        if folder:
+            pdf_files.extend(_collect_pdfs(
+                service, folder['id'], drive_id,
+                cache_dir, [company, year, month, 'faktury', kw]))
 
     return pdf_files
 
+
+def list_available_years(company: str) -> dict[str, list[str]]:
+    """List available years for a company across both drives."""
+    service = _get_service()
+    key = company.lower()
+    if key not in COMPANY_NAMES:
+        raise ValueError(f"Neznámá firma: {company}")
+
+    name_new, name_hist = COMPANY_NAMES[key]
+    result = {}
+
+    # Účetnictví Obluk
+    comp_id = find_folder_ci(service, DRIVE_UCETNICTVI, name_new, DRIVE_UCETNICTVI)
+    if comp_id:
+        years = [f['name'] for f in ls(service, comp_id, DRIVE_UCETNICTVI)
+                 if 'folder' in f['mimeType'] and f['name'].isdigit()]
+        if years:
+            result['Účetnictví Obluk'] = sorted(years)
+
+    # Business Docs
+    comp_id = find_folder_ci(service, DRIVE_BUSINESS_DOCS, name_hist, DRIVE_BUSINESS_DOCS)
+    if comp_id:
+        fin_id = find_folder(service, comp_id, 'Finance', DRIVE_BUSINESS_DOCS)
+        if fin_id:
+            acct_name = ACCOUNTING_NAMES.get(key, f'Účetnictví {name_hist}')
+            acct_id = find_folder(service, fin_id, acct_name, DRIVE_BUSINESS_DOCS)
+            if not acct_id:
+                acct_folder = find_folder_contains(service, fin_id, 'účetnictví', DRIVE_BUSINESS_DOCS)
+                if acct_folder:
+                    acct_id = acct_folder['id']
+            if acct_id:
+                years = [f['name'] for f in ls(service, acct_id, DRIVE_BUSINESS_DOCS)
+                         if 'folder' in f['mimeType'] and f['name'].isdigit()]
+                if years:
+                    result['Business Docs'] = sorted(years)
+
+    return result
+
+
 if __name__ == '__main__':
-    # Test
-    files = get_bank_statements('baker', '2025', '03')
-    print(f"Staženo {len(files)} souborů:")
-    for f in files:
-        print(f"  {f}")
+    import sys
+    if len(sys.argv) > 1:
+        company = sys.argv[1]
+        years = list_available_years(company)
+        print(f"Dostupné roky pro {company}:")
+        for drive, yrs in years.items():
+            print(f"  {drive}: {', '.join(yrs)}")
+    else:
+        print("Použití: python3 gdrive_finance.py <firma>")
+        print("Firmy:", ', '.join(COMPANY_NAMES.keys()))
