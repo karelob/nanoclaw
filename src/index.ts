@@ -57,6 +57,7 @@ import {
   loadSenderAllowlist,
   shouldDropMessage,
 } from './sender-allowlist.js';
+import { checkSyncHealth } from './sync-health.js';
 import { startSchedulerLoop } from './task-scheduler.js';
 import { Channel, NewMessage, RegisteredGroup } from './types.js';
 import { logger } from './logger.js';
@@ -634,6 +635,28 @@ async function main(): Promise<void> {
       writeGroupsSnapshot(gf, im, ag, rj),
   });
   queue.setProcessMessagesFn(processGroupMessages);
+
+  // Sync health check: alert on Telegram if LaunchAgent jobs fail
+  const mainJid = Object.keys(registeredGroups).find(
+    (jid) => registeredGroups[jid]?.isMain,
+  );
+  if (mainJid) {
+    const runSyncCheck = async () => {
+      try {
+        const alert = checkSyncHealth();
+        if (alert) {
+          const channel = findChannel(channels, mainJid);
+          if (channel) await channel.sendMessage(mainJid, alert);
+        }
+      } catch (err) {
+        logger.warn({ err }, 'Sync health check failed');
+      }
+    };
+    // Check 2 min after start (let syncs finish) then every hour
+    setTimeout(runSyncCheck, 2 * 60 * 1000);
+    setInterval(runSyncCheck, 60 * 60 * 1000);
+  }
+
   recoverPendingMessages();
   startMessageLoop().catch((err) => {
     logger.fatal({ err }, 'Message loop crashed unexpectedly');
