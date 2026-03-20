@@ -214,6 +214,30 @@ export function runPostContainerHook(
         );
       }
 
+      // 6. Process pending commitments (if file has content)
+      const pendingFile = path.join(
+        KNOWLEDGE_REPO_PATH,
+        'tracking',
+        'commitments_pending.md',
+      );
+      try {
+        if (fs.existsSync(pendingFile)) {
+          const content = fs.readFileSync(pendingFile, 'utf8');
+          if (content.includes('- [')) {
+            const processScript = path.join(
+              process.env.HOME || '/Users/karel',
+              'Develop/nano-cone/cone/scripts/process_pending_commitments.py',
+            );
+            if (fs.existsSync(processScript)) {
+              execFileSync('python3', [processScript], { timeout: 30_000 });
+              logger.info('Post-container: processed pending commitments');
+            }
+          }
+        }
+      } catch (err) {
+        logger.warn({ err }, 'Post-container: failed to process commitments');
+      }
+
       logger.info(
         {
           groupFolder,
