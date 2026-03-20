@@ -39,8 +39,8 @@ export const SYNC_JOBS: SyncJob[] = [
     logFile: 'calendar_sync.log',
     launchdLabel: 'com.cone.calendar-sync',
     maxAgeHours: 0.5,
-    successPattern: /calendar.*sync|events? (upserted|synced|processed)/i,
-    errorPattern: /Error|database is locked/,
+    successPattern: /calendar_sync OK/,
+    errorPattern: /calendar_sync FAILED/,
   },
   {
     name: 'Contacts sync',
