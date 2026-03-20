@@ -7,6 +7,11 @@ Použití:
   python3 finance.py baker 2025/03 faktury
   python3 finance.py baker 2025 Q1 cashflow
   python3 finance.py srovnej baker pinehill 2025
+  python3 finance.py baker 2023 pmd
+  python3 finance.py baker 2023 rozvaha
+  python3 finance.py baker 2023 vzz
+  python3 finance.py baker 2023 výkazy
+  python3 finance.py baker 2023 analýza 'jak je na tom firma?'
 """
 import sys
 import re
@@ -24,6 +29,7 @@ _gdrive_mod.TOKEN_FILE = TOKEN_FILE
 from parsers import parse_kb_bank_statement, parse_xlsx_cashflow, parse_pdf_text, BankStatement
 from llm_client import LLMClient, FINANCE_SYSTEM_PROMPT
 from gdrive_finance import get_bank_statements, get_invoices
+from accounting import run_pmd, run_annual, analyze_annual_reports
 
 
 def fmt_czk(amount: float) -> str:
@@ -141,6 +147,11 @@ def parse_args(args: list[str]) -> dict:
         'faktury': 'invoices', 'faktura': 'invoices',
         'cashflow': 'cashflow',
         'srovnej': 'compare',
+        'pmd': 'pmd', 'pohyby': 'pmd', 'daňový': 'pmd', 'danovy': 'pmd',
+        'rozvaha': 'rozvaha',
+        'vzz': 'vzz', 'výsledovka': 'vzz', 'vysledovka': 'vzz',
+        'výkazy': 'annual', 'vykazy': 'annual',
+        'analýza': 'analysis', 'analyza': 'analysis', 'účetnictví': 'analysis', 'ucetnictvi': 'analysis',
     }
 
     remaining = list(args)
@@ -212,8 +223,48 @@ def main():
             sys.exit(1)
         print(run_invoices(company, year, month, question))
 
+    elif action == 'pmd':
+        if not all([company, year]):
+            print(f"❌ Chybí firma/rok.")
+            sys.exit(1)
+        print(run_pmd(company, year, question))
+
+    elif action == 'rozvaha':
+        if not all([company, year]):
+            print(f"❌ Chybí firma/rok.")
+            sys.exit(1)
+        print(run_annual(company, year, question))
+
+    elif action == 'vzz':
+        if not all([company, year]):
+            print(f"❌ Chybí firma/rok.")
+            sys.exit(1)
+        print(run_annual(company, year, question))
+
+    elif action == 'annual':
+        if not all([company, year]):
+            print(f"❌ Chybí firma/rok.")
+            sys.exit(1)
+        print(run_annual(company, year, question))
+
+    elif action == 'analysis':
+        if not all([company, year]):
+            print(f"❌ Chybí firma/rok.")
+            sys.exit(1)
+        # Kompletní analýza — PMD + výkazy s LLM
+        pmd_out = run_pmd(company, year)
+        annual_out = run_annual(company, year)
+        context = f"{pmd_out}\n\n{'=' * 60}\n\n{annual_out}"
+        if question:
+            analysis = analyze_annual_reports(company, year, question)
+            print(f"{context}\n\n--- ANALÝZA ---\n{analysis}")
+        else:
+            analysis = analyze_annual_reports(company, year)
+            print(f"{context}\n\n--- ANALÝZA ---\n{analysis}")
+
     elif action == 'help' or action is None:
         print("Použití: finance.py <firma> <rok/měsíc> <akce>")
+        print("Akce: výpis, faktury, pmd, rozvaha, vzz, výkazy, analýza")
 
     else:
         print(f"⚠️ Akce '{action}' zatím není implementována.")
