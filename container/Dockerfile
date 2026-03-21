@@ -24,6 +24,7 @@ RUN apt-get update && apt-get install -y \
     curl \
     git \
     sqlite3 \
+    poppler-utils \
     python3 \
     python3-pip \
     python3-venv \
