@@ -75,26 +75,35 @@ async function transcribeLocal(
   const url = `${serverUrl}/v1/audio/transcriptions`;
 
   const { execFileSync } = await import('child_process');
-  const stdout = execFileSync(
-    'curl',
-    [
-      '-s',
-      '--connect-timeout',
-      '10',
-      '--max-time',
-      '30',
-      '-X',
-      'POST',
-      url,
-      '-F',
-      `file=@${tmpFile}`,
-      '-F',
-      'language=cs',
-    ],
-    { timeout: 35_000 },
-  );
+  let stdout: Buffer;
+  try {
+    stdout = execFileSync(
+      'curl',
+      [
+        '-s',
+        '-w', '\n%{http_code}',
+        '--connect-timeout', '10',
+        '--max-time', '30',
+        '-X', 'POST', url,
+        '-F', `file=@${tmpFile}`,
+        '-F', 'language=cs',
+      ],
+      { timeout: 35_000 },
+    );
+  } catch (err) {
+    throw new Error(`curl failed: ${err instanceof Error ? err.message : err}`);
+  }
 
-  const data = JSON.parse(stdout.toString()) as { text?: string };
+  const output = stdout.toString().trim();
+  const lines = output.split('\n');
+  const httpCode = lines.pop()?.trim();
+  const body = lines.join('\n').trim();
+
+  if (httpCode !== '200') {
+    throw new Error(`Local whisper HTTP ${httpCode}: ${body.slice(0, 100)}`);
+  }
+
+  const data = JSON.parse(body) as { text?: string };
   return { text: data.text?.trim() || null, ms: Date.now() - t0 };
 }
 
