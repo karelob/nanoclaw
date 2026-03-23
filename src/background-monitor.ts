@@ -482,7 +482,7 @@ export function startBackgroundMonitor(
       if (now - state.lastResearch >= RESEARCH_INTERVAL) {
         state.lastResearch = now;
         try {
-          await runResearchAgent();
+          await runResearchAgent(sendAlert);
         } catch (err) {
           logger.warn({ err }, 'Research agent failed');
         }
