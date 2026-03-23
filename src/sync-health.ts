@@ -173,9 +173,16 @@ function formatAge(date: Date): string {
 function checkDbLock(): string | null {
   try {
     const { execFileSync } = require('child_process');
-    const lsofOut = execFileSync('lsof', [
-      path.join(process.env.HOME || '/Users/karel', 'Develop/nano-cone/cone/db/cone.db'),
-    ], { timeout: 5000, encoding: 'utf8' }).trim();
+    const lsofOut = execFileSync(
+      'lsof',
+      [
+        path.join(
+          process.env.HOME || '/Users/karel',
+          'Develop/nano-cone/cone/db/cone.db',
+        ),
+      ],
+      { timeout: 5000, encoding: 'utf8' },
+    ).trim();
 
     const lines = lsofOut.split('\n').slice(1); // skip header
     for (const line of lines) {
@@ -186,19 +193,35 @@ function checkDbLock(): string | null {
       // Check process runtime
       try {
         const ps = execFileSync('ps', ['-p', pid, '-o', 'etime='], {
-          timeout: 3000, encoding: 'utf8',
+          timeout: 3000,
+          encoding: 'utf8',
         }).trim();
         // Parse elapsed time (MM:SS or HH:MM:SS or D-HH:MM:SS)
         const parts2 = ps.split(/[:-]/).map(Number);
         let totalMins = 0;
         if (parts2.length === 2) totalMins = parts2[0];
         else if (parts2.length === 3) totalMins = parts2[0] * 60 + parts2[1];
-        else if (parts2.length === 4) totalMins = parts2[0] * 24 * 60 + parts2[1] * 60 + parts2[2];
+        else if (parts2.length === 4)
+          totalMins = parts2[0] * 24 * 60 + parts2[1] * 60 + parts2[2];
 
-        if (totalMins > 10) {
+        if (totalMins > 15) {
+          // Auto-kill processes holding DB lock >15 min
+          try {
+            process.kill(parseInt(pid, 10), 'SIGTERM');
+            logger.warn(
+              { cmd, pid, elapsed: ps.trim() },
+              'Auto-killed long-running DB lock holder',
+            );
+            return `🔄 cone.db was locked by ${cmd} (PID ${pid}) for ${ps.trim()} — auto-killed`;
+          } catch {
+            return `⚠️ cone.db locked by ${cmd} (PID ${pid}) for ${ps.trim()} — kill failed`;
+          }
+        } else if (totalMins > 10) {
           return `⚠️ cone.db locked by ${cmd} (PID ${pid}) for ${ps.trim()}`;
         }
-      } catch { /* process may have exited */ }
+      } catch {
+        /* process may have exited */
+      }
     }
   } catch {
     // lsof returns non-zero if no matches — that's fine (no locks)
