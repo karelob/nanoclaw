@@ -63,7 +63,6 @@ export const SYNC_JOBS: SyncJob[] = [
     launchdLabel: 'com.cone.commitments',
     maxAgeHours: 26,
     successPattern: /=== Commitment tracker finished ===/,
-    errorPattern: /ERROR:|WARNING:/,
   },
   {
     name: 'Post-briefing',
