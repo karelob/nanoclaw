@@ -478,8 +478,10 @@ export function startBackgroundMonitor(
     }
   };
 
-  // First run after 30 seconds (let services connect)
-  setTimeout(runTier1, 30_000);
+  // First Tier 1 after 2 minutes (let WhatsApp sync finish)
+  // First Tier 2 delayed by setting lastTier2 to now (will run after TIER2_INTERVAL)
+  state.lastTier2 = Date.now();
+  setTimeout(runTier1, 2 * 60 * 1000);
   // Then every 5 minutes
   setInterval(runTier1, TIER1_INTERVAL);
 }
