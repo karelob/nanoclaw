@@ -57,6 +57,7 @@ import {
   loadSenderAllowlist,
   shouldDropMessage,
 } from './sender-allowlist.js';
+import { startBackgroundMonitor } from './background-monitor.js';
 import { handleHostCommand } from './host-commands.js';
 import { runPostContainerHook } from './post-container.js';
 import { checkSyncHealth } from './sync-health.js';
@@ -665,25 +666,16 @@ async function main(): Promise<void> {
   });
   queue.setProcessMessagesFn(processGroupMessages);
 
-  // Sync health check: alert on Telegram if LaunchAgent jobs fail
+  // Background monitor: Tier 1 (health checks every 5 min) + Tier 2 (Ollama analysis every 1 hr)
+  // Replaces the old sync-health-only check
   const mainJid = Object.keys(registeredGroups).find(
     (jid) => registeredGroups[jid]?.isMain,
   );
   if (mainJid) {
-    const runSyncCheck = async () => {
-      try {
-        const alert = checkSyncHealth();
-        if (alert) {
-          const channel = findChannel(channels, mainJid);
-          if (channel) await channel.sendMessage(mainJid, alert);
-        }
-      } catch (err) {
-        logger.warn({ err }, 'Sync health check failed');
-      }
-    };
-    // Check 2 min after start (let syncs finish) then every hour
-    setTimeout(runSyncCheck, 2 * 60 * 1000);
-    setInterval(runSyncCheck, 60 * 60 * 1000);
+    startBackgroundMonitor(async (text) => {
+      const channel = findChannel(channels, mainJid);
+      if (channel) await channel.sendMessage(mainJid, text);
+    });
   }
 
   recoverPendingMessages();
