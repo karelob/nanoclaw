@@ -168,11 +168,61 @@ function formatAge(date: Date): string {
 }
 
 /**
+ * Check if cone.db is locked by a long-running process.
+ */
+function checkDbLock(): string | null {
+  try {
+    const { execFileSync } = require('child_process');
+    const lsofOut = execFileSync('lsof', [
+      path.join(process.env.HOME || '/Users/karel', 'Develop/nano-cone/cone/db/cone.db'),
+    ], { timeout: 5000, encoding: 'utf8' }).trim();
+
+    const lines = lsofOut.split('\n').slice(1); // skip header
+    for (const line of lines) {
+      const parts = line.split(/\s+/);
+      const cmd = parts[0];
+      const pid = parts[1];
+      if (!pid) continue;
+      // Check process runtime
+      try {
+        const ps = execFileSync('ps', ['-p', pid, '-o', 'etime='], {
+          timeout: 3000, encoding: 'utf8',
+        }).trim();
+        // Parse elapsed time (MM:SS or HH:MM:SS or D-HH:MM:SS)
+        const parts2 = ps.split(/[:-]/).map(Number);
+        let totalMins = 0;
+        if (parts2.length === 2) totalMins = parts2[0];
+        else if (parts2.length === 3) totalMins = parts2[0] * 60 + parts2[1];
+        else if (parts2.length === 4) totalMins = parts2[0] * 24 * 60 + parts2[1] * 60 + parts2[2];
+
+        if (totalMins > 10) {
+          return `⚠️ cone.db locked by ${cmd} (PID ${pid}) for ${ps.trim()}`;
+        }
+      } catch { /* process may have exited */ }
+    }
+  } catch {
+    // lsof returns non-zero if no matches — that's fine (no locks)
+  }
+  return null;
+}
+
+/**
  * Check all sync jobs. Returns null if everything OK (for alerting).
  */
 export function checkSyncHealth(): string | null {
   const results = SYNC_JOBS.map(checkJob);
   const failures = results.filter((r) => !r.ok);
+
+  // Also check DB lock
+  const dbLock = checkDbLock();
+  if (dbLock) {
+    failures.push({
+      job: 'DB Lock',
+      ok: false,
+      issue: dbLock,
+      launchdLabel: '',
+    });
+  }
 
   if (failures.length === 0) {
     logger.info('Sync health check: all OK');
