@@ -27,12 +27,15 @@ import path from 'path';
 
 import { KNOWLEDGE_REPO_PATH, STORE_DIR } from './config.js';
 import { logger } from './logger.js';
+import { runResearchAgent } from './research-agent.js';
 import {
   checkSyncHealth,
   getFullHealthReport,
   SYNC_JOBS,
   checkJob,
 } from './sync-health.js';
+
+const RESEARCH_INTERVAL = 12 * 60 * 60 * 1000; // 12 hours
 
 // ── Config ──────────────────────────────────────────
 const HOME = process.env.HOME || '/Users/karel';
@@ -71,10 +74,11 @@ interface MetricsSnapshot {
   errors: string[];
 }
 
-const state: MonitorState = {
+const state: MonitorState & { lastResearch: number } = {
   lastAlerts: new Set(),
   metrics: [],
   lastTier2: 0,
+  lastResearch: 0,
 };
 
 // ── Tier 1: Deterministic health checks ─────────────
@@ -473,14 +477,25 @@ export function startBackgroundMonitor(
           }
         }
       }
+
+      // Research agent (every 12 hours)
+      if (now - state.lastResearch >= RESEARCH_INTERVAL) {
+        state.lastResearch = now;
+        try {
+          await runResearchAgent();
+        } catch (err) {
+          logger.warn({ err }, 'Research agent failed');
+        }
+      }
     } catch (err) {
       logger.error({ err }, 'Background monitor error');
     }
   };
 
   // First Tier 1 after 2 minutes (let WhatsApp sync finish)
-  // First Tier 2 delayed by setting lastTier2 to now (will run after TIER2_INTERVAL)
+  // First Tier 2 and Research delayed
   state.lastTier2 = Date.now();
+  state.lastResearch = Date.now() - RESEARCH_INTERVAL + 10 * 60 * 1000; // first run after 10 min
   setTimeout(runTier1, 2 * 60 * 1000);
   // Then every 5 minutes
   setInterval(runTier1, TIER1_INTERVAL);
