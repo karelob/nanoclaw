@@ -190,7 +190,8 @@ async function runTask(
           result = streamedOutput.result;
           // Forward result to user — skip if result is only internal tags or empty after stripping
           const visibleText = streamedOutput.result
-            .replace(/<internal>[\s\S]*?<\/internal>/g, '').trim();
+            .replace(/<internal>[\s\S]*?<\/internal>/g, '')
+            .trim();
           if (visibleText) {
             await deps.sendMessage(task.chat_jid, streamedOutput.result);
           }
