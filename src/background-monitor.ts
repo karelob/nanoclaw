@@ -258,9 +258,11 @@ function generateAlerts(m: MetricsSnapshot): { key: string; msg: string }[] {
     });
   }
 
-  if (!m.ollamaUp) {
-    alerts.push({ key: 'ollama', msg: '⚠️ Ollama nedostupný (10.0.10.70)' });
-  }
+  // Ollama check disabled for alerts — known intermittent issue from launchd context
+  // Still tracked in metrics for Tier 2 analysis
+  // if (!m.ollamaUp) {
+  //   alerts.push({ key: 'ollama', msg: '⚠️ Ollama nedostupný (10.0.10.70)' });
+  // }
 
   if (m.processMemMB > 1000) {
     alerts.push({
