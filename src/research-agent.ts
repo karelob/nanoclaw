@@ -192,25 +192,45 @@ async function callGemini(prompt: string): Promise<string | null> {
 
 // ── Moltbook interaction ─────────────────────────────
 
-function moltbookPost(title: string, body: string, submolt = 'agents'): boolean {
+function moltbookPost(
+  title: string,
+  body: string,
+  submolt = 'agents',
+): boolean {
   if (!MOLTBOOK_KEY) return false;
   try {
     const payload = JSON.stringify({ title, body, submolt_name: submolt });
     const tmpFile = path.join(require('os').tmpdir(), 'moltbook-post.json');
     fs.writeFileSync(tmpFile, payload);
     try {
-      execFileSync('/usr/bin/curl', [
-        '-s', '--connect-timeout', '10', '--max-time', '15',
-        '-X', 'POST',
-        'https://www.moltbook.com/api/v1/posts',
-        '-H', `Authorization: Bearer ${MOLTBOOK_KEY}`,
-        '-H', 'Content-Type: application/json',
-        '-d', `@${tmpFile}`,
-      ], { timeout: 20_000, encoding: 'utf8' });
+      execFileSync(
+        '/usr/bin/curl',
+        [
+          '-s',
+          '--connect-timeout',
+          '10',
+          '--max-time',
+          '15',
+          '-X',
+          'POST',
+          'https://www.moltbook.com/api/v1/posts',
+          '-H',
+          `Authorization: Bearer ${MOLTBOOK_KEY}`,
+          '-H',
+          'Content-Type: application/json',
+          '-d',
+          `@${tmpFile}`,
+        ],
+        { timeout: 20_000, encoding: 'utf8' },
+      );
       logger.info({ title, submolt }, 'Research: Moltbook post created');
       return true;
     } finally {
-      try { fs.unlinkSync(tmpFile); } catch { /* ignore */ }
+      try {
+        fs.unlinkSync(tmpFile);
+      } catch {
+        /* ignore */
+      }
     }
   } catch (err) {
     logger.warn({ err }, 'Research: Moltbook post failed');
@@ -282,9 +302,12 @@ async function sendResearchReport(
   if (sendTelegram) {
     try {
       // Extract key sections for a concise message
-      const findings = analysis.match(/##\s*Key Findings[\s\S]*?(?=##|$)/)?.[0] || '';
-      const proposals = analysis.match(/##\s*Improvement Proposals[\s\S]*?(?=##|$)/)?.[0] || '';
-      const newSources = analysis.match(/##\s*Suggested New Sources[\s\S]*?(?=##|$)/)?.[0] || '';
+      const findings =
+        analysis.match(/##\s*Key Findings[\s\S]*?(?=##|$)/)?.[0] || '';
+      const proposals =
+        analysis.match(/##\s*Improvement Proposals[\s\S]*?(?=##|$)/)?.[0] || '';
+      const newSources =
+        analysis.match(/##\s*Suggested New Sources[\s\S]*?(?=##|$)/)?.[0] || '';
 
       // Build concise Telegram message
       let msg = `*🔬 Research Report — ${date}*\n`;
@@ -302,14 +325,16 @@ async function sendResearchReport(
       }
 
       if (newSourceCount > 0) {
-        const srcBullets = newSources.match(/https?:\/\/[^\s)<>"]+/g)?.slice(0, 3) || [];
+        const srcBullets =
+          newSources.match(/https?:\/\/[^\s)<>"]+/g)?.slice(0, 3) || [];
         if (srcBullets.length > 0) {
           msg += `*New sources:*\n${srcBullets.map((u: string) => `• ${u}`).join('\n')}`;
         }
       }
 
       // Trim to Telegram limit
-      if (msg.length > 4000) msg = msg.slice(0, 3950) + '\n\n_(full report in email)_';
+      if (msg.length > 4000)
+        msg = msg.slice(0, 3950) + '\n\n_(full report in email)_';
       await sendTelegram(msg);
     } catch (err) {
       logger.warn({ err }, 'Research: Telegram report failed');
