@@ -188,8 +188,12 @@ async function runTask(
       async (streamedOutput: ContainerOutput) => {
         if (streamedOutput.result) {
           result = streamedOutput.result;
-          // Forward result to user (sendMessage handles formatting)
-          await deps.sendMessage(task.chat_jid, streamedOutput.result);
+          // Forward result to user — skip if result is only internal tags or empty after stripping
+          const visibleText = streamedOutput.result
+            .replace(/<internal>[\s\S]*?<\/internal>/g, '').trim();
+          if (visibleText) {
+            await deps.sendMessage(task.chat_jid, streamedOutput.result);
+          }
           // Store agent response for conversation history
           storeMessage({
             id: `bot-task-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
