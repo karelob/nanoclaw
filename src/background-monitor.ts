@@ -107,7 +107,10 @@ function checkBackupAge(): { nasDays: number; b2Days: number } {
     const lines = log.split('\n');
 
     for (let i = lines.length - 1; i >= 0; i--) {
-      if (lines[i].includes('NAS: Hotovo') || lines[i].includes('NAS: hotovo')) {
+      if (
+        lines[i].includes('NAS: Hotovo') ||
+        lines[i].includes('NAS: hotovo')
+      ) {
         const match = lines[i].match(/(\d{4}-\d{2}-\d{2})/);
         if (match) {
           result.nasDays = Math.round(
@@ -141,7 +144,14 @@ function checkOllama(): boolean {
     try {
       const resp = execFileSync(
         '/usr/bin/curl',
-        ['-s', '--connect-timeout', '5', '--max-time', '8', `${OLLAMA_URL}/api/tags`],
+        [
+          '-s',
+          '--connect-timeout',
+          '5',
+          '--max-time',
+          '8',
+          `${OLLAMA_URL}/api/tags`,
+        ],
         { timeout: 12000, encoding: 'utf8' },
       );
       if (resp.includes('models')) return true;
@@ -180,8 +190,7 @@ function getRecentErrors(): string[] {
         if (pattern.test(line) && line.includes('2026-03-')) {
           const dateMatch = line.match(/\d{4}-\d{2}-\d{2} \d{2}:\d{2}/);
           if (dateMatch) {
-            const errorAge =
-              Date.now() - new Date(dateMatch[0]).getTime();
+            const errorAge = Date.now() - new Date(dateMatch[0]).getTime();
             if (errorAge < 24 * 60 * 60 * 1000) {
               errors.push(`[${file}] ${line.trim().slice(0, 120)}`);
             }
@@ -217,9 +226,7 @@ function collectMetrics(): MetricsSnapshot {
 
 // ── Alert with state change detection ───────────────
 
-function generateAlerts(
-  m: MetricsSnapshot,
-): { key: string; msg: string }[] {
+function generateAlerts(m: MetricsSnapshot): { key: string; msg: string }[] {
   const alerts: { key: string; msg: string }[] = [];
 
   if (m.syncHealth) {
@@ -329,19 +336,28 @@ Analyze. Output JSON only:
         '/usr/bin/curl',
         [
           '-s',
-          '--connect-timeout', '10',
-          '--max-time', '60',
-          '-X', 'POST',
+          '--connect-timeout',
+          '10',
+          '--max-time',
+          '60',
+          '-X',
+          'POST',
           `${OLLAMA_URL}/api/generate`,
-          '-H', 'Content-Type: application/json',
-          '-d', `@${tmpPayload}`,
+          '-H',
+          'Content-Type: application/json',
+          '-d',
+          `@${tmpPayload}`,
         ],
         { timeout: 65_000, encoding: 'utf8' },
       );
       const data = JSON.parse(stdout) as { response?: string };
       return data.response?.trim() || null;
     } finally {
-      try { fs.unlinkSync(tmpPayload); } catch { /* ignore */ }
+      try {
+        fs.unlinkSync(tmpPayload);
+      } catch {
+        /* ignore */
+      }
     }
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
