@@ -46,7 +46,10 @@ def normalize_subject(subject: str) -> str:
 
 def get_recent_emails(hours: int = 25) -> list[dict]:
     """Get recent non-Evolution emails, grouped by thread."""
-    conn = sqlite3.connect(CONE_DB)
+    import shutil
+    tmp_db = "/tmp/cone_commitments_read.db"
+    shutil.copy(CONE_DB, tmp_db)
+    conn = sqlite3.connect(tmp_db)
     conn.row_factory = sqlite3.Row
 
     cutoff = (datetime.now() - timedelta(hours=hours)).isoformat()
@@ -177,7 +180,7 @@ def save_to_db(commitments: list[dict], dry_run: bool = False) -> int:
                 print(f"  [DRY RUN DB] {c.get('direction','?')} | {c.get('counterparty','?')} | {c.get('description','?')[:80]}")
         return 0
 
-    conn = sqlite3.connect(CONE_DB)
+    conn = sqlite3.connect(CONE_DB, timeout=30)
     inserted = 0
     now = datetime.now().isoformat()
 

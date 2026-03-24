@@ -501,6 +501,10 @@ async function main(): Promise<void> {
     PROXY_BIND_HOST,
   );
 
+  // Quick sanity check on container networking config (no container spawn)
+  const { verifyContainerNetworking } = await import('./container-runtime.js');
+  verifyContainerNetworking(CREDENTIAL_PROXY_PORT);
+
   // Graceful shutdown handlers
   const shutdown = async (signal: string) => {
     logger.info({ signal }, 'Shutdown signal received');

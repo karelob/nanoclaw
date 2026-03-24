@@ -9,12 +9,19 @@ import { logger } from './logger.js';
  * so they don't leak to child processes.
  */
 export function readEnvFile(keys: string[]): Record<string, string> {
-  const envFile = path.join(process.cwd(), '.env');
+  return readEnvFileFrom(path.join(process.cwd(), '.env'), keys);
+}
+
+/** Read specific keys from an arbitrary .env file path. */
+export function readEnvFileFrom(
+  envFile: string,
+  keys: string[],
+): Record<string, string> {
   let content: string;
   try {
     content = fs.readFileSync(envFile, 'utf-8');
   } catch (err) {
-    logger.debug({ err }, '.env file not found, using defaults');
+    logger.debug({ err }, `.env file not found: ${envFile}`);
     return {};
   }
 

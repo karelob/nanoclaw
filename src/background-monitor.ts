@@ -74,11 +74,16 @@ interface MetricsSnapshot {
   errors: string[];
 }
 
-const state: MonitorState & { lastResearch: number } = {
+// Ollama must be up N consecutive checks before we trust it enough to alert on failures
+const OLLAMA_STABLE_THRESHOLD = 12; // 12 × 5min = 1 hour of consecutive OK
+
+const state: MonitorState & { lastResearch: number; ollamaConsecutiveOk: number; ollamaAlertEnabled: boolean } = {
   lastAlerts: new Set(),
   metrics: [],
   lastTier2: 0,
   lastResearch: 0,
+  ollamaConsecutiveOk: 0,
+  ollamaAlertEnabled: false,
 };
 
 // ── Tier 1: Deterministic health checks ─────────────
@@ -258,11 +263,19 @@ function generateAlerts(m: MetricsSnapshot): { key: string; msg: string }[] {
     });
   }
 
-  // Ollama check disabled for alerts — known intermittent issue from launchd context
-  // Still tracked in metrics for Tier 2 analysis
-  // if (!m.ollamaUp) {
-  //   alerts.push({ key: 'ollama', msg: '⚠️ Ollama nedostupný (10.0.10.70)' });
-  // }
+  // Ollama: track consecutive OK checks, only alert after stable period
+  if (m.ollamaUp) {
+    state.ollamaConsecutiveOk++;
+    if (!state.ollamaAlertEnabled && state.ollamaConsecutiveOk >= OLLAMA_STABLE_THRESHOLD) {
+      state.ollamaAlertEnabled = true;
+      logger.info({ consecutiveOk: state.ollamaConsecutiveOk }, 'Ollama stable — alerts enabled');
+    }
+  } else {
+    state.ollamaConsecutiveOk = 0;
+    if (state.ollamaAlertEnabled) {
+      alerts.push({ key: 'ollama', msg: '⚠️ Ollama nedostupný (10.0.10.70)' });
+    }
+  }
 
   if (m.processMemMB > 1000) {
     alerts.push({

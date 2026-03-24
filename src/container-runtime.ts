@@ -24,30 +24,55 @@ export const PROXY_BIND_HOST =
   process.env.CREDENTIAL_PROXY_HOST || detectProxyBindHost();
 
 /**
- * Detect the bridge IP that Apple Container VMs use to reach the host.
+ * Detect the IP that Apple Container VMs use to reach the host.
+ * Apple Container uses vmnet (192.168.64.0/24) — the host is always 192.168.64.1.
+ * Older versions used bridge100, but current macOS uses vmnet without a visible
+ * host-side interface. We probe the container to confirm, with 192.168.64.1 as default.
  * Falls back to 'host.docker.internal' for Docker.
  */
-function detectAppleContainerBridgeIP(): string | null {
+function detectAppleContainerHostIP(): string | null {
   if (os.platform() !== 'darwin') return null;
   if (CONTAINER_RUNTIME_BIN !== 'container') return null;
+
   const ifaces = os.networkInterfaces();
-  // Apple Container creates bridge100 for VM networking
+
+  // Check bridge100 first (older Apple Container versions)
   const bridge = ifaces['bridge100'];
   if (bridge) {
     const ipv4 = bridge.find((a) => a.family === 'IPv4');
     if (ipv4) return ipv4.address;
   }
-  return null;
+
+  // Modern Apple Container: vmnet gateway is 192.168.64.1 (no host-side interface visible).
+  // Probe it by running a quick container to confirm.
+  try {
+    const result = execSync(
+      'container run --rm alpine sh -c "ip route | head -1"',
+      { timeout: 10000, encoding: 'utf-8' },
+    ).trim();
+    const gwMatch = result.match(/via\s+([\d.]+)/);
+    if (gwMatch) {
+      logger.info({ gateway: gwMatch[1] }, 'Detected Apple Container gateway via probe');
+      return gwMatch[1];
+    }
+  } catch {
+    logger.warn('Apple Container gateway probe failed, using default 192.168.64.1');
+  }
+
+  // Hardcoded default for Apple Container vmnet
+  return '192.168.64.1';
 }
 
 function detectHostGateway(): string {
-  return detectAppleContainerBridgeIP() || 'host.docker.internal';
+  return detectAppleContainerHostIP() || 'host.docker.internal';
 }
 
 function detectProxyBindHost(): string {
-  // Apple Container: bind to the bridge IP so VMs can reach the proxy
-  const bridgeIP = detectAppleContainerBridgeIP();
-  if (bridgeIP) return bridgeIP;
+  // Apple Container: vmnet gateway (192.168.64.1) is not a real host interface,
+  // so we can't bind to it directly. Bind to 0.0.0.0 instead — the container
+  // reaches us via the vmnet gateway which routes to the host's network stack.
+  const containerHostIP = detectAppleContainerHostIP();
+  if (containerHostIP) return '0.0.0.0';
 
   if (os.platform() === 'darwin') return '127.0.0.1';
 
@@ -63,6 +88,46 @@ function detectProxyBindHost(): string {
     if (ipv4) return ipv4.address;
   }
   return '0.0.0.0';
+}
+
+/**
+ * Startup self-diagnostic for container networking.
+ * Verifies: gateway detected, proxy bound, container runtime available.
+ * Full end-to-end test (container → proxy) runs in background monitor on first Tier 1 check.
+ */
+export function verifyContainerNetworking(proxyPort: number): boolean {
+  const gateway = CONTAINER_HOST_GATEWAY;
+  const bindHost = PROXY_BIND_HOST;
+
+  const issues: string[] = [];
+
+  // 1. Gateway must be an IP, not a hostname (hostnames cause ENOTFOUND in containers)
+  if (gateway === 'host.docker.internal') {
+    issues.push(`Gateway is 'host.docker.internal' — Apple Container VMs cannot resolve this`);
+  }
+
+  // 2. Proxy must not bind to 127.0.0.1 on Apple Container (VMs can't reach loopback)
+  if (CONTAINER_RUNTIME_BIN === 'container' && bindHost === '127.0.0.1') {
+    issues.push(`Proxy bound to 127.0.0.1 — Apple Container VMs cannot reach loopback`);
+  }
+
+  // 3. Container runtime must be available
+  try {
+    execSync(`which ${CONTAINER_RUNTIME_BIN}`, { timeout: 5000, encoding: 'utf-8' });
+  } catch {
+    issues.push(`Container runtime '${CONTAINER_RUNTIME_BIN}' not found in PATH`);
+  }
+
+  if (issues.length > 0) {
+    logger.error({ issues, gateway, bindHost, proxyPort }, 'Container networking self-check FAILED');
+    return false;
+  }
+
+  logger.info(
+    { gateway, bindHost, proxyPort },
+    'Container networking self-check PASSED — gateway detected, proxy bound correctly',
+  );
+  return true;
 }
 
 /** CLI args needed for the container to resolve the host gateway. */

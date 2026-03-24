@@ -41,6 +41,8 @@ export interface ContainerInput {
   isMain: boolean;
   isScheduledTask?: boolean;
   assistantName?: string;
+  /** @internal retry flag — set automatically on network error retry */
+  _isRetry?: boolean;
 }
 
 export interface ContainerOutput {
@@ -547,6 +549,8 @@ export async function runContainerAgent(
       logger.debug({ logFile, verbose: isVerbose }, 'Container log written');
 
       if (code !== 0) {
+        const isNetworkError = stderr.includes('ENOTFOUND') || stderr.includes('ECONNREFUSED') || stderr.includes('EHOSTUNREACH');
+
         logger.error(
           {
             group: group.name,
@@ -555,9 +559,25 @@ export async function runContainerAgent(
             stderr,
             stdout,
             logFile,
+            isNetworkError,
           },
           'Container exited with error',
         );
+
+        // Network errors get one automatic retry (covers transient vmnet startup)
+        if (isNetworkError && !input._isRetry) {
+          logger.warn({ group: group.name }, 'Network error detected — retrying container in 5s');
+          setTimeout(() => {
+            runContainerAgent(group, { ...input, _isRetry: true } as ContainerInput, onProcess, onOutput)
+              .then(resolve)
+              .catch(() => resolve({
+                status: 'error',
+                result: null,
+                error: `Container retry also failed (network)`,
+              }));
+          }, 5000);
+          return;
+        }
 
         resolve({
           status: 'error',

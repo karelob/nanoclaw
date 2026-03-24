@@ -17,12 +17,16 @@ import path from 'path';
 
 import { KNOWLEDGE_REPO_PATH } from './config.js';
 import { logger } from './logger.js';
-import { readEnvFile } from './env.js';
+import { readEnvFile, readEnvFileFrom } from './env.js';
 
 const envVars = readEnvFile(['GOOGLE_AI_API_KEY', 'MOLTBOOK_API_KEY']);
+const coneEnv = readEnvFileFrom(
+  path.join(process.env.HOME || '/Users/karel', 'Develop/nano-cone/cone/config/.env'),
+  ['GOOGLE_AI_API_KEY', 'MOLTBOOK_API_KEY'],
+);
 
-const GEMINI_KEY = process.env.GOOGLE_AI_API_KEY || envVars.GOOGLE_AI_API_KEY;
-const MOLTBOOK_KEY = process.env.MOLTBOOK_API_KEY || envVars.MOLTBOOK_API_KEY;
+const GEMINI_KEY = process.env.GOOGLE_AI_API_KEY || envVars.GOOGLE_AI_API_KEY || coneEnv.GOOGLE_AI_API_KEY;
+const MOLTBOOK_KEY = process.env.MOLTBOOK_API_KEY || envVars.MOLTBOOK_API_KEY || coneEnv.MOLTBOOK_API_KEY;
 
 const PROPOSALS_DIR = path.join(
   KNOWLEDGE_REPO_PATH,
@@ -85,40 +89,65 @@ function fetchMoltbookFeed(limit = 10): string[] {
   }
 }
 
-function fetchBlog(url: string): string | null {
-  const html = fetchUrl(url, 20);
-  if (!html) return null;
-  // Strip HTML to text
-  let text = html
-    .replace(/<style[^>]*>[\s\S]*?<\/style>/gi, '')
-    .replace(/<script[^>]*>[\s\S]*?<\/script>/gi, '')
-    .replace(/<[^>]+>/g, ' ')
-    .replace(/&[a-z]+;/gi, ' ')
-    .replace(/\s+/g, ' ')
-    .trim();
-  return text.slice(0, 5000);
+/** Fetch RSS/Atom feed → extract recent items as text */
+function fetchRss(url: string, maxItems = 5): string | null {
+  const xml = fetchUrl(url, 20);
+  if (!xml) return null;
+  const items: string[] = [];
+
+  // Try RSS <item> first, then Atom <entry>
+  const itemRegex = /<(?:item|entry)>([\s\S]*?)<\/(?:item|entry)>/gi;
+  let match;
+  while ((match = itemRegex.exec(xml)) && items.length < maxItems) {
+    const block = match[1];
+    const title = block.match(/<title[^>]*>(?:<!\[CDATA\[)?(.*?)(?:\]\]>)?<\/title>/)?.[1] || '';
+    // RSS uses <description>, Atom uses <content> or <summary>
+    const desc = block.match(/<(?:description|content|summary)[^>]*>(?:<!\[CDATA\[)?([\s\S]*?)(?:\]\]>)?<\/(?:description|content|summary)>/)?.[1] || '';
+    const pubDate = block.match(/<(?:pubDate|published|updated)>(.*?)<\/(?:pubDate|published|updated)>/)?.[1] || '';
+    // Strip HTML from description
+    const cleanDesc = desc.replace(/<[^>]+>/g, ' ').replace(/&[a-z]+;/gi, ' ').replace(/\s+/g, ' ').trim();
+    items.push(`[${pubDate}] ${title}\n${cleanDesc.slice(0, 800)}`);
+  }
+  return items.length > 0 ? items.join('\n---\n') : null;
 }
 
-function readCurrentState(): string {
-  const files = [
-    'tracking/system_health.md',
-    'situation.md',
-    'learnings/decisions.md',
-  ];
-  const parts: string[] = [];
-  for (const f of files) {
-    try {
-      const content = fs.readFileSync(
-        path.join(KNOWLEDGE_REPO_PATH, f),
-        'utf8',
-      );
-      parts.push(`=== ${f} ===\n${content.slice(0, 2000)}`);
-    } catch {
-      /* skip */
-    }
+/** Fetch GitHub releases via API */
+function fetchGithubReleases(repo: string, count = 3): string | null {
+  const raw = fetchUrl(`https://api.github.com/repos/${repo}/releases?per_page=${count}`, 15);
+  if (!raw) return null;
+  try {
+    const releases = JSON.parse(raw);
+    if (!Array.isArray(releases)) return null;
+    return releases
+      .map((r: { tag_name?: string; name?: string; body?: string; published_at?: string }) =>
+        `[${r.tag_name}] ${r.name || ''} (${(r.published_at || '').slice(0, 10)})\n${(r.body || '').slice(0, 1000)}`)
+      .join('\n---\n');
+  } catch {
+    return null;
   }
-  return parts.join('\n\n');
 }
+
+/** Fetch web page via Jina reader proxy → clean markdown */
+function fetchViaJina(url: string): string | null {
+  const md = fetchUrl(`https://r.jina.ai/${url}`, 20);
+  if (!md || md.length < 100) return null;
+  return md.slice(0, 5000);
+}
+
+/** Fetch a source based on its type */
+function fetchSource(url: string, type: string): string | null {
+  switch (type) {
+    case 'rss': return fetchRss(url);
+    case 'github': {
+      // Extract owner/repo from GitHub URL
+      const match = url.match(/github\.com\/([^/]+\/[^/]+)/);
+      return match ? fetchGithubReleases(match[1]) : null;
+    }
+    case 'jina': return fetchViaJina(url);
+    default: return fetchViaJina(url); // fallback to jina
+  }
+}
+
 
 // ── Gemini call ─────────────────────────────────────
 
@@ -252,26 +281,37 @@ const SOURCES_FILE = path.join(
   'research_sources.md',
 );
 
-function loadDynamicSources(): { name: string; url: string }[] {
+function loadDynamicSources(): { name: string; url: string; type: string }[] {
   try {
     const content = fs.readFileSync(SOURCES_FILE, 'utf8');
-    const sources: { name: string; url: string }[] = [];
+    const sources: { name: string; url: string; type: string }[] = [];
     const lines = content.split('\n');
     let inActive = false;
     for (const line of lines) {
       if (line.includes('## Aktivní zdroje')) inActive = true;
       else if (line.startsWith('## ')) inActive = false;
       if (!inActive) continue;
-      const match = line.match(/^\|\s*(https?:\/\/\S+)\s*\|/);
+      // Format: | URL | Type | Added | Reason |
+      const match = line.match(/^\|\s*(https?:\/\/\S+)\s*\|\s*(\S+)\s*\|/);
       if (match) {
         const url = match[1];
-        sources.push({ name: url.split('/')[2] || url, url });
+        const type = match[2].toLowerCase();
+        sources.push({ name: url.split('/')[2] || url, url, type });
       }
     }
     return sources;
   } catch {
     return [];
   }
+}
+
+/** Search via Jina reader on Google results page */
+function fetchGoogleSearch(query: string): string | null {
+  const encoded = encodeURIComponent(query);
+  // Use Jina reader to render Google search results page
+  const result = fetchUrl(`https://r.jina.ai/https://www.google.com/search?q=${encoded}&num=5`, 20);
+  if (!result || result.length < 200) return null;
+  return result.slice(0, 5000);
 }
 
 function addSourceCandidate(url: string, reason: string): void {
@@ -304,8 +344,8 @@ async function sendResearchReport(
       // Extract key sections for a concise message
       const findings =
         analysis.match(/##\s*Key Findings[\s\S]*?(?=##|$)/)?.[0] || '';
-      const proposals =
-        analysis.match(/##\s*Improvement Proposals[\s\S]*?(?=##|$)/)?.[0] || '';
+      const risks =
+        analysis.match(/##\s*Risks\/Concerns[\s\S]*?(?=##|$)/)?.[0] || '';
       const newSources =
         analysis.match(/##\s*Suggested New Sources[\s\S]*?(?=##|$)/)?.[0] || '';
 
@@ -319,9 +359,9 @@ async function sendResearchReport(
         msg += `*Findings:*\n${bullets.join('\n')}\n\n`;
       }
 
-      const propBullets = proposals.match(/[-•]\s+.+/g)?.slice(0, 3) || [];
-      if (propBullets.length > 0) {
-        msg += `*Proposals:*\n${propBullets.join('\n')}\n\n`;
+      const riskBullets = risks.match(/[-•]\s+.+/g)?.slice(0, 3) || [];
+      if (riskBullets.length > 0) {
+        msg += `*Risks:*\n${riskBullets.join('\n')}\n\n`;
       }
 
       if (newSourceCount > 0) {
@@ -399,14 +439,33 @@ export async function runResearchAgent(
     logger.info({ source: 'Moltbook' }, 'Research: fetched source');
   }
 
-  // 2. Fetch all sources from research_sources.md (including former "builtin")
+  // 2. Fetch all sources from research_sources.md using typed fetchers
   const dynamicSources = loadDynamicSources();
   for (const src of dynamicSources) {
     try {
-      const text = fetchBlog(src.url);
+      const text = fetchSource(src.url, src.type);
       if (text) {
-        sourceSummaries.push(`${src.name}:\n${text}`);
-        logger.info({ source: src.name }, 'Research: fetched source');
+        sourceSummaries.push(`[${src.type}] ${src.name}:\n${text}`);
+        logger.info({ source: src.name, type: src.type }, 'Research: fetched source');
+      } else {
+        logger.warn({ source: src.name, type: src.type }, 'Research: source returned empty');
+      }
+    } catch {
+      /* skip */
+    }
+  }
+
+  // 3. Google search for recent relevant topics
+  const searchQueries = [
+    'Claude Code SDK agent latest updates 2026',
+    'AI personal assistant architecture best practices 2026',
+  ];
+  for (const query of searchQueries) {
+    try {
+      const results = fetchGoogleSearch(query);
+      if (results) {
+        sourceSummaries.push(`[search] "${query}":\n${results}`);
+        logger.info({ query }, 'Research: Google search completed');
       }
     } catch {
       /* skip */
@@ -418,34 +477,36 @@ export async function runResearchAgent(
     return;
   }
 
-  // 2. Read current system state
-  const currentState = readCurrentState();
-
-  // 3. Build prompt
-  const prompt = `You are researching improvements for NanoClaw — a personal AI assistant system.
-
-CURRENT SYSTEM STATE:
-${currentState.slice(0, 3000)}
+  // 4. Build prompt
+  const prompt = `You are researching improvements for NanoClaw — a personal AI assistant system (Node.js, Claude Agent SDK, containerized agents, channel-based messaging).
 
 EXTERNAL SOURCES (fetched today):
 ${sourceSummaries.join('\n\n---\n\n')}
 
 TASK:
-1. Identify the 3-5 most relevant/interesting findings from the external sources
-2. For each: explain WHY it's relevant to NanoClaw and WHAT specifically could be improved
-3. Check if any source mentions tools, techniques or patterns we don't use yet
-4. Flag any security concerns or deprecation notices
-5. SELF-IMPROVEMENT: Suggest 1-3 NEW sources (blogs, tools, newsletters, GitHub repos, forums) that would be valuable for future research. For each: provide exact URL and explain why it's relevant.
+Analyze the external sources above and extract NEW information we might not already know.
+
+For each finding:
+- What exactly changed, was released, or was announced? (version numbers, dates, specifics)
+- What should NanoClaw concretely do differently? (specific code changes, new dependencies, config tweaks)
+- Skip generic advice ("improve monitoring", "add tests"). Only include findings with a clear, specific action.
+- Do NOT diagnose NanoClaw system problems — focus purely on what's new externally.
+
+Also:
+- Flag any security vulnerabilities, breaking changes, or deprecation notices in tools we use
+- Suggest 1-3 NEW sources (exact URLs) that would be valuable for future research runs
 
 Output as markdown with sections:
 ## Key Findings
-## Improvement Proposals
+(for each: what exactly changed/was released, and what NanoClaw should do about it)
 ## New Tools/Techniques
+(only if genuinely new and applicable)
 ## Risks/Concerns
+(security, deprecations, breaking changes)
 ## Suggested New Sources
 (for each: URL, type, why relevant)
 
-Be specific and actionable. Not "improve monitoring" but "add disk space trend prediction using last 7 days of metrics".`;
+Be specific and actionable. Not "consider upgrading Node" but "Node 22.4.0 released on 2026-03-20, adds X feature — relevant because NanoClaw uses Y".`;
 
   // 4. Call Gemini
   const analysis = await callGemini(prompt);
@@ -485,7 +546,7 @@ ${analysis}
   ];
   let newSourceCount = 0;
   for (const match of suggestedUrls) {
-    const url = match[0].replace(/[.,;:]+$/, '');
+    const url = match[0].replace(/[.,;:`'"\])+]+$/, '');
     if (
       !url.includes('moltbook.com') &&
       !url.includes('bluelabel.ventures') &&
