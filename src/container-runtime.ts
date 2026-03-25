@@ -52,11 +52,16 @@ function detectAppleContainerHostIP(): string | null {
     ).trim();
     const gwMatch = result.match(/via\s+([\d.]+)/);
     if (gwMatch) {
-      logger.info({ gateway: gwMatch[1] }, 'Detected Apple Container gateway via probe');
+      logger.info(
+        { gateway: gwMatch[1] },
+        'Detected Apple Container gateway via probe',
+      );
       return gwMatch[1];
     }
   } catch {
-    logger.warn('Apple Container gateway probe failed, using default 192.168.64.1');
+    logger.warn(
+      'Apple Container gateway probe failed, using default 192.168.64.1',
+    );
   }
 
   // Hardcoded default for Apple Container vmnet
@@ -103,23 +108,35 @@ export function verifyContainerNetworking(proxyPort: number): boolean {
 
   // 1. Gateway must be an IP, not a hostname (hostnames cause ENOTFOUND in containers)
   if (gateway === 'host.docker.internal') {
-    issues.push(`Gateway is 'host.docker.internal' — Apple Container VMs cannot resolve this`);
+    issues.push(
+      `Gateway is 'host.docker.internal' — Apple Container VMs cannot resolve this`,
+    );
   }
 
   // 2. Proxy must not bind to 127.0.0.1 on Apple Container (VMs can't reach loopback)
   if (CONTAINER_RUNTIME_BIN === 'container' && bindHost === '127.0.0.1') {
-    issues.push(`Proxy bound to 127.0.0.1 — Apple Container VMs cannot reach loopback`);
+    issues.push(
+      `Proxy bound to 127.0.0.1 — Apple Container VMs cannot reach loopback`,
+    );
   }
 
   // 3. Container runtime must be available
   try {
-    execSync(`which ${CONTAINER_RUNTIME_BIN}`, { timeout: 5000, encoding: 'utf-8' });
+    execSync(`which ${CONTAINER_RUNTIME_BIN}`, {
+      timeout: 5000,
+      encoding: 'utf-8',
+    });
   } catch {
-    issues.push(`Container runtime '${CONTAINER_RUNTIME_BIN}' not found in PATH`);
+    issues.push(
+      `Container runtime '${CONTAINER_RUNTIME_BIN}' not found in PATH`,
+    );
   }
 
   if (issues.length > 0) {
-    logger.error({ issues, gateway, bindHost, proxyPort }, 'Container networking self-check FAILED');
+    logger.error(
+      { issues, gateway, bindHost, proxyPort },
+      'Container networking self-check FAILED',
+    );
     return false;
   }
 

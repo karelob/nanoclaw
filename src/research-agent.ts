@@ -341,7 +341,11 @@ function loadDynamicSources(): { name: string; url: string; type: string }[] {
 
 // ── Reading list (Karel's manual submissions) ────
 
-const READING_LIST_PATH = path.join(KNOWLEDGE_REPO_PATH, 'topics', 'reading_list.md');
+const READING_LIST_PATH = path.join(
+  KNOWLEDGE_REPO_PATH,
+  'topics',
+  'reading_list.md',
+);
 
 interface ReadingListItem {
   title: string;
@@ -367,7 +371,12 @@ function loadReadingList(): ReadingListItem[] {
       if (line.startsWith('### ')) {
         // Save previous item if pending
         if (currentUrl && titleLineIndex >= 0) {
-          items.push({ title: currentTitle, url: currentUrl, note: currentNote.trim(), lineIndex: titleLineIndex });
+          items.push({
+            title: currentTitle,
+            url: currentUrl,
+            note: currentNote.trim(),
+            lineIndex: titleLineIndex,
+          });
         }
         currentTitle = line.replace(/^###\s*/, '').trim();
         currentUrl = '';
@@ -377,13 +386,19 @@ function loadReadingList(): ReadingListItem[] {
       }
 
       // Skip already processed items
-      if (line.includes('*Status:* zpracováno') || line.includes('*Status:* processed')) {
+      if (
+        line.includes('*Status:* zpracováno') ||
+        line.includes('*Status:* processed')
+      ) {
         currentUrl = ''; // reset — don't include this item
         titleLineIndex = -1;
         continue;
       }
 
-      if (line.includes('*Status:* ke studiu') || line.includes('*Status:* pending')) {
+      if (
+        line.includes('*Status:* ke studiu') ||
+        line.includes('*Status:* pending')
+      ) {
         // This item is pending — keep collecting
         continue;
       }
@@ -396,14 +411,23 @@ function loadReadingList(): ReadingListItem[] {
       }
 
       // Collect notes
-      if (titleLineIndex >= 0 && line.startsWith('- *') && !line.includes('*Status:*')) {
+      if (
+        titleLineIndex >= 0 &&
+        line.startsWith('- *') &&
+        !line.includes('*Status:*')
+      ) {
         currentNote += line + '\n';
       }
     }
 
     // Don't forget last item
     if (currentUrl && titleLineIndex >= 0) {
-      items.push({ title: currentTitle, url: currentUrl, note: currentNote.trim(), lineIndex: titleLineIndex });
+      items.push({
+        title: currentTitle,
+        url: currentUrl,
+        note: currentNote.trim(),
+        lineIndex: titleLineIndex,
+      });
     }
 
     return items;
@@ -417,12 +441,17 @@ function markReadingListProcessed(urls: string[]): void {
     let content = fs.readFileSync(READING_LIST_PATH, 'utf8');
     for (const url of urls) {
       content = content.replace(
-        new RegExp(`(\\*Zdroj:\\*\\s*${url.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}[\\s\\S]*?\\*Status:\\*)\\s*ke studiu`),
+        new RegExp(
+          `(\\*Zdroj:\\*\\s*${url.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}[\\s\\S]*?\\*Status:\\*)\\s*ke studiu`,
+        ),
         '$1 zpracováno (research agent)',
       );
     }
     fs.writeFileSync(READING_LIST_PATH, content);
-    logger.info({ count: urls.length }, 'Research: marked reading list items as processed');
+    logger.info(
+      { count: urls.length },
+      'Research: marked reading list items as processed',
+    );
   } catch {
     /* non-critical */
   }
@@ -612,10 +641,16 @@ export async function runResearchAgent(
     try {
       const text = fetchViaJina(item.url);
       if (!text) {
-        logger.warn({ url: item.url }, 'Research: reading list item fetch failed');
+        logger.warn(
+          { url: item.url },
+          'Research: reading list item fetch failed',
+        );
         continue;
       }
-      logger.info({ url: item.url, title: item.title }, 'Research: fetched reading list item');
+      logger.info(
+        { url: item.url, title: item.title },
+        'Research: fetched reading list item',
+      );
 
       const deepPrompt = `Analyze this article in depth for a personal AI assistant system called NanoClaw (Node.js, Claude Agent SDK, Apple Container VMs, Ollama for local inference on RTX 4070 Ti Super 16GB).
 
@@ -637,13 +672,24 @@ Buď specifický a technický. Žádné generické rady.`;
 
       const deepAnalysis = await callGemini(deepPrompt);
       if (deepAnalysis && deepAnalysis.length > 200) {
-        deepAnalyses.push(`## 📖 ${item.title}\n*Zdroj: ${item.url}*\n\n${deepAnalysis}`);
-        logger.info({ title: item.title, length: deepAnalysis.length }, 'Research: deep analysis completed');
+        deepAnalyses.push(
+          `## 📖 ${item.title}\n*Zdroj: ${item.url}*\n\n${deepAnalysis}`,
+        );
+        logger.info(
+          { title: item.title, length: deepAnalysis.length },
+          'Research: deep analysis completed',
+        );
       } else {
-        logger.warn({ title: item.title, length: deepAnalysis?.length }, 'Research: deep analysis too short');
+        logger.warn(
+          { title: item.title, length: deepAnalysis?.length },
+          'Research: deep analysis too short',
+        );
       }
     } catch (err) {
-      logger.warn({ err, url: item.url }, 'Research: reading list analysis failed');
+      logger.warn(
+        { err, url: item.url },
+        'Research: reading list analysis failed',
+      );
     }
   }
 
@@ -675,7 +721,10 @@ Maximum 30 bullet points. Be terse.`;
 
     scanAnalysis = await callGemini(scanPrompt);
     if (scanAnalysis) {
-      logger.info({ length: scanAnalysis.length }, 'Research: source scan completed');
+      logger.info(
+        { length: scanAnalysis.length },
+        'Research: source scan completed',
+      );
     }
   }
 
@@ -712,7 +761,11 @@ ${reportBody}
 
   fs.writeFileSync(proposalPath, content);
   logger.info(
-    { path: proposalPath, length: content.length, deepCount: deepAnalyses.length },
+    {
+      path: proposalPath,
+      length: content.length,
+      deepCount: deepAnalyses.length,
+    },
     'Research agent: report written',
   );
 
@@ -725,7 +778,8 @@ ${reportBody}
   let newSourceCount = 0;
   if (scanAnalysis) {
     const suggestedSection =
-      scanAnalysis.split(/##\s*Suggested New Sources/i)[1]?.slice(0, 2000) || '';
+      scanAnalysis.split(/##\s*Suggested New Sources/i)[1]?.slice(0, 2000) ||
+      '';
     const suggestedUrls = [
       ...suggestedSection.matchAll(/https?:\/\/[^\s)<>"]+/g),
     ];

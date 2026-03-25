@@ -225,7 +225,9 @@ function checkEmailFreshness(): string | null {
     const lines = content.split('\n');
     // Find the last "newest:" line for obluk.com (primary account)
     for (let i = lines.length - 1; i >= 0; i--) {
-      const match = lines[i].match(/obluk\.com:.*newest:\s*(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2})/);
+      const match = lines[i].match(
+        /obluk\.com:.*newest:\s*(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2})/,
+      );
       if (match) {
         const age = Date.now() - new Date(match[1]).getTime();
         const ageHours = age / (60 * 60 * 1000);

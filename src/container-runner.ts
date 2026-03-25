@@ -549,7 +549,10 @@ export async function runContainerAgent(
       logger.debug({ logFile, verbose: isVerbose }, 'Container log written');
 
       if (code !== 0) {
-        const isNetworkError = stderr.includes('ENOTFOUND') || stderr.includes('ECONNREFUSED') || stderr.includes('EHOSTUNREACH');
+        const isNetworkError =
+          stderr.includes('ENOTFOUND') ||
+          stderr.includes('ECONNREFUSED') ||
+          stderr.includes('EHOSTUNREACH');
 
         logger.error(
           {
@@ -566,15 +569,25 @@ export async function runContainerAgent(
 
         // Network errors get one automatic retry (covers transient vmnet startup)
         if (isNetworkError && !input._isRetry) {
-          logger.warn({ group: group.name }, 'Network error detected — retrying container in 5s');
+          logger.warn(
+            { group: group.name },
+            'Network error detected — retrying container in 5s',
+          );
           setTimeout(() => {
-            runContainerAgent(group, { ...input, _isRetry: true } as ContainerInput, onProcess, onOutput)
+            runContainerAgent(
+              group,
+              { ...input, _isRetry: true } as ContainerInput,
+              onProcess,
+              onOutput,
+            )
               .then(resolve)
-              .catch(() => resolve({
-                status: 'error',
-                result: null,
-                error: `Container retry also failed (network)`,
-              }));
+              .catch(() =>
+                resolve({
+                  status: 'error',
+                  result: null,
+                  error: `Container retry also failed (network)`,
+                }),
+              );
           }, 5000);
           return;
         }
