@@ -77,7 +77,11 @@ interface MetricsSnapshot {
 // Ollama must be up N consecutive checks before we trust it enough to alert on failures
 const OLLAMA_STABLE_THRESHOLD = 12; // 12 × 5min = 1 hour of consecutive OK
 
-const state: MonitorState & { lastResearch: number; ollamaConsecutiveOk: number; ollamaAlertEnabled: boolean } = {
+const state: MonitorState & {
+  lastResearch: number;
+  ollamaConsecutiveOk: number;
+  ollamaAlertEnabled: boolean;
+} = {
   lastAlerts: new Set(),
   metrics: [],
   lastTier2: 0,
@@ -180,7 +184,7 @@ function getRecentErrors(): string[] {
   const errors: string[] = [];
   const logFiles = [
     { file: 'calendar_sync.log', pattern: /FAILED/ },
-    { file: 'email_sync.log', pattern: /WARN|ERROR/ },
+    { file: 'email_sync.log', pattern: /WARN|ERROR|Rate limit|chyb\)/ },
     { file: 'commitments.log', pattern: /WARNING|ERROR/ },
   ];
 
@@ -213,6 +217,30 @@ function getRecentErrors(): string[] {
   return errors.slice(-10);
 }
 
+/** Check email freshness — newest email should be < 6 hours old for primary account */
+function checkEmailFreshness(): string | null {
+  try {
+    const logPath = path.join(CONE_LOGS, 'email_sync.log');
+    const content = fs.readFileSync(logPath, 'utf-8');
+    const lines = content.split('\n');
+    // Find the last "newest:" line for obluk.com (primary account)
+    for (let i = lines.length - 1; i >= 0; i--) {
+      const match = lines[i].match(/obluk\.com:.*newest:\s*(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2})/);
+      if (match) {
+        const age = Date.now() - new Date(match[1]).getTime();
+        const ageHours = age / (60 * 60 * 1000);
+        if (ageHours > 6) {
+          return `⚠️ Email sync zastaralý: newest obluk.com email ${Math.round(ageHours)}h starý`;
+        }
+        return null;
+      }
+    }
+  } catch {
+    /* skip */
+  }
+  return null;
+}
+
 function collectMetrics(): MetricsSnapshot {
   const syncAlert = checkSyncHealth();
   const disk = checkDiskSpace();
@@ -242,6 +270,11 @@ function generateAlerts(m: MetricsSnapshot): { key: string; msg: string }[] {
     alerts.push({ key: 'sync', msg: m.syncHealth });
   }
 
+  const emailFreshness = checkEmailFreshness();
+  if (emailFreshness) {
+    alerts.push({ key: 'email-freshness', msg: emailFreshness });
+  }
+
   if (m.diskUsedPct > 90) {
     alerts.push({
       key: 'disk',
@@ -266,9 +299,15 @@ function generateAlerts(m: MetricsSnapshot): { key: string; msg: string }[] {
   // Ollama: track consecutive OK checks, only alert after stable period
   if (m.ollamaUp) {
     state.ollamaConsecutiveOk++;
-    if (!state.ollamaAlertEnabled && state.ollamaConsecutiveOk >= OLLAMA_STABLE_THRESHOLD) {
+    if (
+      !state.ollamaAlertEnabled &&
+      state.ollamaConsecutiveOk >= OLLAMA_STABLE_THRESHOLD
+    ) {
       state.ollamaAlertEnabled = true;
-      logger.info({ consecutiveOk: state.ollamaConsecutiveOk }, 'Ollama stable — alerts enabled');
+      logger.info(
+        { consecutiveOk: state.ollamaConsecutiveOk },
+        'Ollama stable — alerts enabled',
+      );
     }
   } else {
     state.ollamaConsecutiveOk = 0;
