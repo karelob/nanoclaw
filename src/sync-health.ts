@@ -123,7 +123,10 @@ export function checkJob(job: SyncJob): HealthResult {
     // If the log was modified very recently (<2 min), sync is likely still running
     const ageMinutes = (Date.now() - stat.mtimeMs) / 60000;
     if (ageMinutes < 2) {
-      logger.info({ job: job.name, ageMinutes: Math.round(ageMinutes * 10) / 10 }, 'Sync likely still running, skipping');
+      logger.info(
+        { job: job.name, ageMinutes: Math.round(ageMinutes * 10) / 10 },
+        'Sync likely still running, skipping',
+      );
       return {
         job: job.name,
         ok: true,

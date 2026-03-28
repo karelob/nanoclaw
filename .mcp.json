@@ -1,3 +1,12 @@
 {
-  "mcpServers": {}
+  "mcpServers": {
+    "cone-db": {
+      "command": "node",
+      "args": ["/Users/karel/Develop/nano-cone/cone-mcp/dist/index.js"],
+      "env": {
+        "CONE_DB_PATH": "/Users/karel/Develop/nano-cone/cone/db/cone.db",
+        "EMBEDDINGS_DB_PATH": "/Users/karel/Develop/nano-cone/cone/db/embeddings.db"
+      }
+    }
+  }
 }
