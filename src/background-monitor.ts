@@ -53,6 +53,11 @@ const HEALTH_REPORT_PATH = path.join(
   'tracking',
   'system_health.md',
 );
+const ACTION_CLAIMS_PATH = path.join(
+  KNOWLEDGE_REPO_PATH,
+  'tracking',
+  'action_claims.json',
+);
 
 // ── Alert log and action items ──────────────────────
 
@@ -565,17 +570,68 @@ function addOrUpdateActionItem(alertKey: string, alertMsg: string): void {
   });
 }
 
-function resolveActionItem(
-  alertKey: string,
-  by = 'monitor',
-  note = '',
-): void {
+function resolveActionItem(alertKey: string, by = 'monitor', note = ''): void {
   for (const item of state.actionItems) {
     if (item.key === alertKey && !item.resolved) {
       item.resolved = new Date().toISOString().replace('T', ' ').slice(0, 16);
       item.resolvedBy = by;
       item.resolvedNote = note;
     }
+  }
+}
+
+/**
+ * Read and process claims/resolves from agents.
+ * Agents write to action_claims.json, monitor reads and applies.
+ * File is truncated after processing.
+ */
+function processActionClaims(): void {
+  try {
+    if (!fs.existsSync(ACTION_CLAIMS_PATH)) return;
+    const raw = fs.readFileSync(ACTION_CLAIMS_PATH, 'utf8').trim();
+    if (!raw || raw === '[]') return;
+
+    const claims: {
+      key: string;
+      action: 'claim' | 'resolve';
+      by: string;
+      note?: string;
+    }[] = JSON.parse(raw);
+
+    for (const claim of claims) {
+      const item = state.actionItems.find(
+        (a) => a.key === claim.key && !a.resolved,
+      );
+      if (!item) continue;
+
+      if (claim.action === 'claim') {
+        item.claimedBy = claim.by;
+        item.claimedAt = new Date()
+          .toISOString()
+          .replace('T', ' ')
+          .slice(0, 16);
+        logger.info(
+          { key: claim.key, by: claim.by },
+          'Action item claimed',
+        );
+      } else if (claim.action === 'resolve') {
+        item.resolved = new Date()
+          .toISOString()
+          .replace('T', ' ')
+          .slice(0, 16);
+        item.resolvedBy = claim.by;
+        item.resolvedNote = claim.note || '';
+        logger.info(
+          { key: claim.key, by: claim.by, note: claim.note },
+          'Action item resolved',
+        );
+      }
+    }
+
+    // Truncate after processing
+    fs.writeFileSync(ACTION_CLAIMS_PATH, '[]');
+  } catch (err) {
+    logger.warn({ err }, 'Failed to process action claims');
   }
 }
 
@@ -622,7 +678,8 @@ function writeHealthReport(metrics: MetricsSnapshot): void {
     // ── Action Items ──
     report += `\n## Action Items\n\n`;
     report += `<!-- Stavy: [ ] open, [~] in progress, [x] resolved -->\n`;
-    report += `<!-- Agenti: přečti, vezmi si @svůj, označ [~], po vyřešení [x] -->\n`;
+    report += `<!-- Claim/resolve: zapsat do tracking/action_claims.json -->\n`;
+    report += `<!-- Formát: [{"key":"alert-key","action":"claim|resolve","by":"CLI","note":"..."}] -->\n`;
     const openItems = state.actionItems.filter(
       (a) => !a.resolved && !a.claimedBy,
     );
@@ -640,15 +697,13 @@ function writeHealthReport(metrics: MetricsSnapshot): void {
       report += `Žádné action items.\n`;
     } else {
       for (const item of openItems) {
-        report += `- [ ] ${item.assignee}: ${item.description} (od ${item.created})\n`;
+        report += `- [ ] ${item.assignee} [key:${item.key}]: ${item.description} (od ${item.created})\n`;
       }
       for (const item of inProgressItems) {
-        report += `- [~] ${item.assignee}: ${item.description} — řeší ${item.claimedBy} od ${item.claimedAt}\n`;
+        report += `- [~] ${item.assignee} [key:${item.key}]: ${item.description} — řeší ${item.claimedBy} od ${item.claimedAt}\n`;
       }
       for (const item of recentResolved) {
-        const note = item.resolvedNote
-          ? `: ${item.resolvedNote}`
-          : '';
+        const note = item.resolvedNote ? `: ${item.resolvedNote}` : '';
         report += `- [x] ${item.assignee}: ${item.description} — VYŘEŠENO ${item.resolved} (${item.resolvedBy || '?'}${note})\n`;
       }
     }
@@ -710,6 +765,9 @@ export function startBackgroundMonitor(
         state.lastAlerts.add(a.key);
       }
 
+      // Process claims/resolves from agents before escalation check
+      processActionClaims();
+
       // Escalate to Telegram: unclaimed items older than 15 min (3 Tier 1 cycles)
       const ESCALATION_DELAY = 15 * 60 * 1000; // 15 minutes
       const escalationCandidates = state.actionItems.filter(
@@ -717,7 +775,9 @@ export function startBackgroundMonitor(
           !item.resolved &&
           !item.claimedBy &&
           !item.telegramSent &&
-          Date.now() - new Date(item.created.replace(' ', 'T') + ':00Z').getTime() > ESCALATION_DELAY,
+          Date.now() -
+            new Date(item.created.replace(' ', 'T') + ':00Z').getTime() >
+            ESCALATION_DELAY,
       );
       if (escalationCandidates.length > 0) {
         const msg = escalationCandidates
