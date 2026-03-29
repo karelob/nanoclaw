@@ -43,7 +43,9 @@ Single Node.js process with skill-based channel system. Channels (WhatsApp, Tele
 1. Read `system_health.md` at session start and check for `@cli` action items
 2. Proactively fix `@cli` items without waiting for Karel's instruction
 3. Re-read when Karel says "zkontroluj" / "podívej se na stav" / "check"
-4. Mark resolved items: `- [ ]` → `- [x] VYŘEŠENO {date}: {what was done}`
+4. Claim items first: `- [ ]` → `- [~] ... řeší CLI od {date}` (prevents Telegram escalation)
+5. After fix: `- [~]` → `- [x] VYŘEŠENO {date} (CLI: what was done)`
+6. Unclaimed items escalate to Karel's Telegram after 15 minutes
 
 Path: `~/Develop/nano-cone/knowledge/tracking/system_health.md`
 

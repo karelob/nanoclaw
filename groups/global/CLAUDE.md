@@ -40,7 +40,14 @@ Files you create are saved in `/workspace/group/`. Use this for notes, research,
 
 ## System Health — Action Items
 
-`/workspace/extra/knowledge/tracking/system_health.md` is the **single source of truth** for system health. Updated every 5 minutes. At the start of every run, check the "Action Items" section for items assigned to you (`@agent` for container agents, `@task:{name}` for scheduled tasks). Process relevant items, then mark resolved: `- [ ]` → `- [x] VYŘEŠENO {date}: {what was done}`.
+`/workspace/extra/knowledge/tracking/system_health.md` is the **single source of truth** for system health. Updated every 5 minutes.
+
+At the start of every run, check "Action Items" for your assignee (`@agent`, `@task:{name}`).
+1. Claim first: `- [ ]` → `- [~] ... řeší {your_name} od {date}` (prevents Telegram escalation)
+2. Process: check logs, diagnose, fix or inform Karel
+3. Resolve: `- [~]` → `- [x] VYŘEŠENO {date} ({your_name}: what was done)`
+
+Unclaimed items escalate to Karel's Telegram after 15 minutes — claim promptly.
 
 ## Reporting Issues
 

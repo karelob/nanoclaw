@@ -66,7 +66,12 @@ interface ActionItem {
   key: string; // matches alert key for auto-resolve
   description: string;
   created: string;
+  claimedBy?: string; // who is working on it
+  claimedAt?: string;
   resolved?: string;
+  resolvedBy?: string;
+  resolvedNote?: string;
+  telegramSent?: boolean; // true after escalation to Telegram
 }
 
 // Map alert keys to assignees and action descriptions
@@ -560,10 +565,16 @@ function addOrUpdateActionItem(alertKey: string, alertMsg: string): void {
   });
 }
 
-function resolveActionItem(alertKey: string): void {
+function resolveActionItem(
+  alertKey: string,
+  by = 'monitor',
+  note = '',
+): void {
   for (const item of state.actionItems) {
     if (item.key === alertKey && !item.resolved) {
       item.resolved = new Date().toISOString().replace('T', ' ').slice(0, 16);
+      item.resolvedBy = by;
+      item.resolvedNote = note;
     }
   }
 }
@@ -610,19 +621,35 @@ function writeHealthReport(metrics: MetricsSnapshot): void {
 
     // ── Action Items ──
     report += `\n## Action Items\n\n`;
-    report += `<!-- background-monitor zapisuje, aktéři čtou a řeší -->\n`;
-    const activeItems = state.actionItems.filter((a) => !a.resolved);
+    report += `<!-- Stavy: [ ] open, [~] in progress, [x] resolved -->\n`;
+    report += `<!-- Agenti: přečti, vezmi si @svůj, označ [~], po vyřešení [x] -->\n`;
+    const openItems = state.actionItems.filter(
+      (a) => !a.resolved && !a.claimedBy,
+    );
+    const inProgressItems = state.actionItems.filter(
+      (a) => !a.resolved && a.claimedBy,
+    );
     const recentResolved = state.actionItems
       .filter((a) => a.resolved)
       .slice(-5);
-    if (activeItems.length === 0 && recentResolved.length === 0) {
+    if (
+      openItems.length === 0 &&
+      inProgressItems.length === 0 &&
+      recentResolved.length === 0
+    ) {
       report += `Žádné action items.\n`;
     } else {
-      for (const item of activeItems) {
+      for (const item of openItems) {
         report += `- [ ] ${item.assignee}: ${item.description} (od ${item.created})\n`;
       }
+      for (const item of inProgressItems) {
+        report += `- [~] ${item.assignee}: ${item.description} — řeší ${item.claimedBy} od ${item.claimedAt}\n`;
+      }
       for (const item of recentResolved) {
-        report += `- [x] ${item.assignee}: ${item.description} — VYŘEŠENO ${item.resolved}\n`;
+        const note = item.resolvedNote
+          ? `: ${item.resolvedNote}`
+          : '';
+        report += `- [x] ${item.assignee}: ${item.description} — VYŘEŠENO ${item.resolved} (${item.resolvedBy || '?'}${note})\n`;
       }
     }
 
@@ -664,11 +691,8 @@ export function startBackgroundMonitor(
       const currentKeys = new Set(alerts.map((a) => a.key));
       const newAlerts = alerts.filter((a) => !state.lastAlerts.has(a.key));
 
-      // Send only NEW alerts (state change)
+      // Create action items for NEW alerts (don't send Telegram yet — grace period)
       if (newAlerts.length > 0) {
-        const msg = newAlerts.map((a) => a.msg).join('\n');
-        await sendAlert(`*System Monitor*\n${msg}`);
-        // Log alerts and create action items
         for (const a of newAlerts) {
           addAlertLog(a.msg);
           addOrUpdateActionItem(a.key, a.msg);
@@ -679,11 +703,30 @@ export function startBackgroundMonitor(
       for (const key of state.lastAlerts) {
         if (!currentKeys.has(key)) {
           state.lastAlerts.delete(key);
-          resolveActionItem(key);
+          resolveActionItem(key, 'auto', 'Alert cleared');
         }
       }
       for (const a of alerts) {
         state.lastAlerts.add(a.key);
+      }
+
+      // Escalate to Telegram: unclaimed items older than 15 min (3 Tier 1 cycles)
+      const ESCALATION_DELAY = 15 * 60 * 1000; // 15 minutes
+      const escalationCandidates = state.actionItems.filter(
+        (item) =>
+          !item.resolved &&
+          !item.claimedBy &&
+          !item.telegramSent &&
+          Date.now() - new Date(item.created.replace(' ', 'T') + ':00Z').getTime() > ESCALATION_DELAY,
+      );
+      if (escalationCandidates.length > 0) {
+        const msg = escalationCandidates
+          .map((item) => item.description)
+          .join('\n');
+        await sendAlert(`*System Monitor — neřešené problémy*\n${msg}`);
+        for (const item of escalationCandidates) {
+          item.telegramSent = true;
+        }
       }
 
       // Write health report on EVERY Tier 1 run (not just hourly)
