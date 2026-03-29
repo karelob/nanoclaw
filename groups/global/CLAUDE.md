@@ -38,6 +38,14 @@ When working as a sub-agent or teammate, only use `send_message` if instructed t
 
 Files you create are saved in `/workspace/group/`. Use this for notes, research, or anything that should persist.
 
+## System Health — Action Items
+
+`/workspace/extra/knowledge/tracking/system_health.md` is the **single source of truth** for system health. Updated every 5 minutes. At the start of every run, check the "Action Items" section for items assigned to you (`@agent` for container agents, `@task:{name}` for scheduled tasks). Process relevant items, then mark resolved: `- [ ]` → `- [x] VYŘEŠENO {date}: {what was done}`.
+
+## Reporting Issues
+
+When something doesn't work, a tool is missing, or you have to work around a limitation, log it to `/workspace/extra/knowledge/tracking/improvements.md`. This is the central feedback log read by all agents and the system maintainer. Format: date, category, what happened, workaround, suggestion.
+
 ## Memory
 
 The `conversations/` folder contains searchable history of past conversations. Use this to recall context from previous sessions.

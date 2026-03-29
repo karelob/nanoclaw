@@ -32,6 +32,21 @@ Single Node.js process with skill-based channel system. Channels (WhatsApp, Tele
 | `/qodo-pr-resolver` | Fetch and fix Qodo PR review issues interactively or in batch |
 | `/get-qodo-rules` | Load org- and repo-level coding rules from Qodo before code tasks |
 
+## System Health — Action Items
+
+`knowledge/tracking/system_health.md` is the **single source of truth** for system health. It is updated every 5 minutes by background-monitor and contains:
+- Current metrics (sync, backup, disk, Ollama)
+- Recent alerts (what was sent to Telegram)
+- **Action Items** with assignees (`@agent`, `@cli`, `@karel`)
+
+**CLI sessions MUST:**
+1. Read `system_health.md` at session start and check for `@cli` action items
+2. Proactively fix `@cli` items without waiting for Karel's instruction
+3. Re-read when Karel says "zkontroluj" / "podívej se na stav" / "check"
+4. Mark resolved items: `- [ ]` → `- [x] VYŘEŠENO {date}: {what was done}`
+
+Path: `~/Develop/nano-cone/knowledge/tracking/system_health.md`
+
 ## Development
 
 Run commands directly—don't tell the user to run them.
