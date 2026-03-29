@@ -663,9 +663,14 @@ print(result)
   }
 }
 
+export interface ResearchResult {
+  moltbookOk: boolean;
+  sourceCount: number;
+}
+
 export async function runResearchAgent(
   sendTelegram?: (text: string) => Promise<void>,
-): Promise<void> {
+): Promise<ResearchResult> {
   logger.info('Research agent starting');
 
   // 1. Fetch Moltbook (API-based, always if key exists)
@@ -812,7 +817,10 @@ Maximum 30 bullet points. Be terse.`;
 
   if (deepAnalyses.length === 0 && !scanAnalysis) {
     logger.warn('Research: no analysis produced, skipping');
-    return;
+    return {
+      moltbookOk: moltbookConsecutiveFailures === 0,
+      sourceCount: sourceSummaries.length,
+    };
   }
 
   // ── Combine into final report ──
@@ -886,4 +894,9 @@ ${reportBody}
     newSourceCount,
     sendTelegram || null,
   );
+
+  return {
+    moltbookOk: moltbookConsecutiveFailures === 0,
+    sourceCount: sourceSummaries.length,
+  };
 }

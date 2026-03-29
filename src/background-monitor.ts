@@ -36,6 +36,7 @@ import {
 } from './sync-health.js';
 
 const RESEARCH_INTERVAL = 12 * 60 * 60 * 1000; // 12 hours
+const RESEARCH_RETRY_INTERVAL = 10 * 60 * 1000; // 10 min retry when Moltbook is down
 
 // ── Config ──────────────────────────────────────────
 const HOME = process.env.HOME || '/Users/karel';
@@ -81,6 +82,7 @@ const OLLAMA_STABLE_THRESHOLD = 12; // 12 × 5min = 1 hour of consecutive OK
 
 const state: MonitorState & {
   lastResearch: number;
+  moltbookOk: boolean | undefined;
   ollamaConsecutiveOk: number;
   ollamaAlertEnabled: boolean;
 } = {
@@ -88,6 +90,7 @@ const state: MonitorState & {
   metrics: [],
   lastTier2: 0,
   lastResearch: 0,
+  moltbookOk: undefined, // unknown until first run
   ollamaConsecutiveOk: 0,
   ollamaAlertEnabled: false,
 };
@@ -579,11 +582,23 @@ export function startBackgroundMonitor(
         }
       }
 
-      // Research agent (every 12 hours)
-      if (now - state.lastResearch >= RESEARCH_INTERVAL) {
+      // Research agent (12h normal, 10min retry when Moltbook down)
+      const researchInterval = state.moltbookOk === false
+        ? RESEARCH_RETRY_INTERVAL
+        : RESEARCH_INTERVAL;
+      if (now - state.lastResearch >= researchInterval) {
         state.lastResearch = now;
         try {
-          await runResearchAgent(sendAlert);
+          const result = await runResearchAgent(
+            state.moltbookOk === false ? undefined : sendAlert, // no Telegram on retries
+          );
+          const wasDown = state.moltbookOk === false;
+          state.moltbookOk = result.moltbookOk;
+          if (wasDown && result.moltbookOk) {
+            logger.info('Research: Moltbook recovered — back to 12h interval');
+          } else if (!result.moltbookOk) {
+            logger.info('Research: Moltbook still down — retrying in 10min');
+          }
         } catch (err) {
           logger.warn({ err }, 'Research agent failed');
         }
