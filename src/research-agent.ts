@@ -114,7 +114,7 @@ function fetchMoltbookSubmolt(
       '20',
       '-H',
       `Authorization: Bearer ${MOLTBOOK_KEY}`,
-      `https://www.moltbook.com/api/v1/submolts/${submolt}/feed?sort=hot&limit=${limit}`,
+      `https://www.moltbook.com/api/v1/posts?submolt=${submolt}&sort=hot&limit=${limit}`,
     ],
     { timeout: 25_000, encoding: 'utf8' },
   );
