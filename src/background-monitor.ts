@@ -68,7 +68,9 @@ interface MetricsSnapshot {
   diskUsedPct: number;
   coneDbSizeMB: number;
   backupNasAgeDays: number;
+  backupNasWarnings: string[];
   backupB2AgeDays: number;
+  backupB2Warnings: string[];
   ollamaUp: boolean;
   processMemMB: number;
   errors: string[];
@@ -113,12 +115,23 @@ function checkConeDbSize(): number {
   }
 }
 
-function checkBackupAge(): { nasDays: number; b2Days: number } {
-  const result = { nasDays: -1, b2Days: -1 };
+function checkBackupAge(): {
+  nasDays: number;
+  b2Days: number;
+  nasWarnings: string[];
+  b2Warnings: string[];
+} {
+  const result = {
+    nasDays: -1,
+    b2Days: -1,
+    nasWarnings: [] as string[],
+    b2Warnings: [] as string[],
+  };
   try {
     const log = fs.readFileSync(BACKUP_LOG, 'utf8');
     const lines = log.split('\n');
 
+    // Find last NAS "Hotovo" and collect warnings from that run
     for (let i = lines.length - 1; i >= 0; i--) {
       if (
         lines[i].includes('NAS: Hotovo') ||
@@ -129,11 +142,20 @@ function checkBackupAge(): { nasDays: number; b2Days: number } {
           result.nasDays = Math.round(
             (Date.now() - new Date(match[1]).getTime()) / 86400000,
           );
+          // Scan backwards from Hotovo to "Záloha zahájena" for WARNs
+          for (let j = i - 1; j >= 0; j--) {
+            if (lines[j].includes('=== Záloha zahájena')) break;
+            if (lines[j].includes('WARN:')) {
+              const warnMatch = lines[j].match(/WARN:\s*(.+)/);
+              if (warnMatch) result.nasWarnings.push(warnMatch[1].trim());
+            }
+          }
           break;
         }
       }
     }
 
+    // Find last B2 "Hotovo" and collect warnings from that run
     for (let i = lines.length - 1; i >= 0; i--) {
       if (lines[i].includes('B2: Hotovo') || lines[i].includes('B2: hotovo')) {
         const match = lines[i].match(/(\d{4}-\d{2}-\d{2})/);
@@ -141,6 +163,13 @@ function checkBackupAge(): { nasDays: number; b2Days: number } {
           result.b2Days = Math.round(
             (Date.now() - new Date(match[1]).getTime()) / 86400000,
           );
+          for (let j = i - 1; j >= 0; j--) {
+            if (lines[j].includes('=== Záloha zahájena')) break;
+            if (lines[j].includes('WARN:')) {
+              const warnMatch = lines[j].match(/WARN:\s*(.+)/);
+              if (warnMatch) result.b2Warnings.push(warnMatch[1].trim());
+            }
+          }
           break;
         }
       }
@@ -256,7 +285,9 @@ function collectMetrics(): MetricsSnapshot {
     diskUsedPct: disk.usedPct,
     coneDbSizeMB: checkConeDbSize(),
     backupNasAgeDays: backup.nasDays,
+    backupNasWarnings: backup.nasWarnings,
     backupB2AgeDays: backup.b2Days,
+    backupB2Warnings: backup.b2Warnings,
     ollamaUp: checkOllama(),
     processMemMB: checkProcessHealth(),
     errors: getRecentErrors(),
@@ -291,10 +322,24 @@ function generateAlerts(m: MetricsSnapshot): { key: string; msg: string }[] {
     });
   }
 
+  if (m.backupNasWarnings.length > 0) {
+    alerts.push({
+      key: 'backup-nas-warn',
+      msg: `⚠️ NAS backup varování: ${m.backupNasWarnings.join('; ')}`,
+    });
+  }
+
   if (m.backupB2AgeDays > 8) {
     alerts.push({
       key: 'backup-b2',
       msg: `⚠️ B2 backup ${m.backupB2AgeDays} dní starý`,
+    });
+  }
+
+  if (m.backupB2Warnings.length > 0) {
+    alerts.push({
+      key: 'backup-b2-warn',
+      msg: `⚠️ B2 backup varování: ${m.backupB2Warnings.join('; ')}`,
     });
   }
 
@@ -366,8 +411,8 @@ MEMORY: NanoClaw ${latest.processMemMB}MB RSS
 OLLAMA: ${latest.ollamaUp ? 'up' : 'DOWN'}
 
 BACKUP:
-  NAS: last success ${latest.backupNasAgeDays} days ago ${latest.backupNasAgeDays > 7 ? '⚠️ CRITICAL' : ''}
-  B2: last success ${latest.backupB2AgeDays} days ago ${latest.backupB2AgeDays > 7 ? '⚠️' : ''}
+  NAS: last success ${latest.backupNasAgeDays} days ago ${latest.backupNasAgeDays > 7 ? '⚠️ CRITICAL' : ''}${latest.backupNasWarnings.length > 0 ? ' — WARNINGS: ' + latest.backupNasWarnings.join('; ') : ''}
+  B2: last success ${latest.backupB2AgeDays} days ago ${latest.backupB2AgeDays > 7 ? '⚠️' : ''}${latest.backupB2Warnings.length > 0 ? ' — WARNINGS: ' + latest.backupB2Warnings.join('; ') : ''}
 
 ERRORS_LAST_24H (${latest.errors.length}):
 ${latest.errors.map((e) => `  - ${e}`).join('\n') || '  none'}
@@ -440,8 +485,8 @@ function writeHealthReport(
     report += `| cone.db | ${metrics.coneDbSizeMB} MB |\n`;
     report += `| NanoClaw RAM | ${metrics.processMemMB} MB |\n`;
     report += `| Ollama | ${metrics.ollamaUp ? '✅' : '❌'} |\n`;
-    report += `| Backup NAS | ${metrics.backupNasAgeDays >= 0 ? metrics.backupNasAgeDays + ' days ago' : 'unknown'} |\n`;
-    report += `| Backup B2 | ${metrics.backupB2AgeDays >= 0 ? metrics.backupB2AgeDays + ' days ago' : 'unknown'} |\n`;
+    report += `| Backup NAS | ${metrics.backupNasAgeDays >= 0 ? metrics.backupNasAgeDays + ' days ago' : 'unknown'}${metrics.backupNasWarnings.length > 0 ? ' ⚠️ ' + metrics.backupNasWarnings.join(', ') : ''} |\n`;
+    report += `| Backup B2 | ${metrics.backupB2AgeDays >= 0 ? metrics.backupB2AgeDays + ' days ago' : 'unknown'}${metrics.backupB2Warnings.length > 0 ? ' ⚠️ ' + metrics.backupB2Warnings.join(', ') : ''} |\n`;
     report += `| DB Lock | ${metrics.dbLocked ? '⚠️ YES' : 'no'} |\n`;
     report += `| Errors (24h) | ${metrics.errors.length} |\n`;
 
