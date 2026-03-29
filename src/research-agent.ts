@@ -65,6 +65,29 @@ function fetchUrl(url: string, timeoutSec = 15): string | null {
   }
 }
 
+const IMPROVEMENTS_FILE = path.join(
+  KNOWLEDGE_REPO_PATH,
+  'tracking',
+  'improvements.md',
+);
+
+function logImprovement(
+  category: string,
+  description: string,
+  detail: string,
+): void {
+  try {
+    const date = new Date().toISOString().slice(0, 10);
+    const entry = `\n### ${date} ${category} — ${description}\n- **Co se stalo:** ${detail}\n- **Agent:** research-agent\n`;
+    fs.appendFileSync(IMPROVEMENTS_FILE, entry);
+  } catch {
+    /* best-effort */
+  }
+}
+
+// Track consecutive Moltbook failures to avoid spamming improvements.md
+let moltbookConsecutiveFailures = 0;
+
 function fetchMoltbookFeed(limit = 10): string[] {
   if (!MOLTBOOK_KEY) return [];
   try {
@@ -83,7 +106,12 @@ function fetchMoltbookFeed(limit = 10): string[] {
       { timeout: 20_000, encoding: 'utf8' },
     );
     const data = JSON.parse(raw);
-    return (data.posts || []).map(
+    if (data.statusCode && data.statusCode >= 400) {
+      throw new Error(
+        `API error ${data.statusCode}: ${data.message || 'unknown'}`,
+      );
+    }
+    const posts = (data.posts || []).map(
       (p: {
         title?: string;
         content?: string;
@@ -92,8 +120,24 @@ function fetchMoltbookFeed(limit = 10): string[] {
       }) =>
         `[${p.comment_count || 0}💬] ${p.title || '?'}\n${(p.content || '').slice(0, 300)}`,
     );
+    if (posts.length > 0) {
+      moltbookConsecutiveFailures = 0;
+    }
+    return posts;
   } catch (err) {
-    logger.warn({ err }, 'Research: Moltbook fetch failed');
+    moltbookConsecutiveFailures++;
+    logger.warn(
+      { err, consecutive: moltbookConsecutiveFailures },
+      'Research: Moltbook fetch failed',
+    );
+    // Log to improvements.md on 3rd consecutive failure (avoid noise from transient issues)
+    if (moltbookConsecutiveFailures === 3) {
+      logImprovement(
+        'missing-tool',
+        'Moltbook API opakovaně selhává',
+        `Feed endpoint vrací chybu 3x za sebou. Poslední: ${err instanceof Error ? err.message : String(err)}. Moltbook data nejsou k dispozici pro research.`,
+      );
+    }
     return [];
   }
 }
