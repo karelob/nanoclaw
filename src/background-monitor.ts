@@ -610,15 +610,9 @@ function processActionClaims(): void {
           .toISOString()
           .replace('T', ' ')
           .slice(0, 16);
-        logger.info(
-          { key: claim.key, by: claim.by },
-          'Action item claimed',
-        );
+        logger.info({ key: claim.key, by: claim.by }, 'Action item claimed');
       } else if (claim.action === 'resolve') {
-        item.resolved = new Date()
-          .toISOString()
-          .replace('T', ' ')
-          .slice(0, 16);
+        item.resolved = new Date().toISOString().replace('T', ' ').slice(0, 16);
         item.resolvedBy = claim.by;
         item.resolvedNote = claim.note || '';
         logger.info(
