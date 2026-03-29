@@ -49,6 +49,22 @@ At the start of every run, check "Action Items" for your assignee (`@agent`, `@t
 
 Unclaimed items escalate to Karel's Telegram after 15 minutes — claim promptly.
 
+## Agent Log — inter-agent communication
+
+`/workspace/extra/knowledge/situation.md` has an "Agent Log" section at the bottom — **shared communication channel** between all agents.
+
+**At every run:**
+1. Read the last ~20 lines of Agent Log — anything new for you?
+2. Process relevant items
+3. Append what YOU did: `- [YYYY-MM-DD HH:MM your_name]: what you did / what you need`
+
+**For larger tasks** you can't do yourself:
+1. Create a detailed file in `tracking/tasks/YYYY-MM-DD-name.md` with full prompt/instructions
+2. Append a one-liner to Agent Log: `- [date agent]: @cli — viz tracking/tasks/YYYY-MM-DD-name.md`
+3. The target agent will pick it up on their next run
+
+**Rules:** Append-only, never delete lines. Mark processed items with ✅ at start.
+
 ## Reporting Issues
 
 When something doesn't work, a tool is missing, or you have to work around a limitation, log it to `/workspace/extra/knowledge/tracking/improvements.md`. This is the central feedback log read by all agents and the system maintainer. Format: date, category, what happened, workaround, suggestion.

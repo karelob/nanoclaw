@@ -40,12 +40,14 @@ Single Node.js process with skill-based channel system. Channels (WhatsApp, Tele
 - **Action Items** with assignees (`@agent`, `@cli`, `@karel`)
 
 **CLI sessions MUST:**
-1. Read `system_health.md` at session start and check for `@cli` action items
-2. Proactively fix `@cli` items without waiting for Karel's instruction
-3. Re-read when Karel says "zkontroluj" / "podívej se na stav" / "check"
-4. Claim items first: `- [ ]` → `- [~] ... řeší CLI od {date}` (prevents Telegram escalation)
-5. After fix: `- [~]` → `- [x] VYŘEŠENO {date} (CLI: what was done)`
-6. Unclaimed items escalate to Karel's Telegram after 15 minutes
+1. Read `system_health.md` at session start — check for `@cli` action items, fix proactively
+2. Read `situation.md` Agent Log — check for `@cli` tasks from other agents
+3. If Agent Log references `tracking/tasks/*.md` for CLI — read and execute
+4. Re-read when Karel says "zkontroluj" / "podívej se na stav" / "check"
+5. Claim items: `- [ ]` → `- [~] ... řeší CLI od {date}` (prevents Telegram escalation)
+6. After fix: `- [~]` → `- [x] VYŘEŠENO {date} (CLI: what was done)`
+7. Log own actions to Agent Log: `- [date CLI]: what was done`
+8. Unclaimed health items escalate to Karel's Telegram after 15 minutes
 
 Path: `~/Develop/nano-cone/knowledge/tracking/system_health.md`
 
