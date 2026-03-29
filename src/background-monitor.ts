@@ -254,28 +254,44 @@ function checkBackupAge(): {
   return result;
 }
 
+// Ollama check — launchd Node.js process cannot reach LAN IPs directly
+// (EHOSTUNREACH for 10.0.10.70 — likely macOS vmnet routing conflict).
+// Workaround: write result to temp file from a separate bash wrapper,
+// which CAN reach LAN from launchd context.
+const OLLAMA_CHECK_FILE = '/tmp/ollama-check.json';
+
 function checkOllama(): boolean {
-  // Retry twice — intermittent EHOSTUNREACH from launchd process
-  for (let attempt = 0; attempt < 2; attempt++) {
-    try {
-      const resp = execFileSync(
-        '/usr/bin/curl',
-        [
-          '-s',
-          '--connect-timeout',
-          '5',
-          '--max-time',
-          '8',
-          `${OLLAMA_URL}/api/tags`,
-        ],
-        { timeout: 12000, encoding: 'utf8' },
-      );
-      if (resp.includes('models')) return true;
-    } catch {
-      /* retry */
+  // Read result from file (written by periodic bash check)
+  try {
+    if (!fs.existsSync(OLLAMA_CHECK_FILE)) {
+      // Bootstrap: run first check
+      triggerOllamaCheck();
+      return false;
     }
+    const data = JSON.parse(fs.readFileSync(OLLAMA_CHECK_FILE, 'utf8'));
+    const ageMs = Date.now() - new Date(data.ts).getTime();
+    // Stale if older than 10 min
+    if (ageMs > 10 * 60 * 1000) {
+      triggerOllamaCheck();
+      return false;
+    }
+    return data.ok === true;
+  } catch {
+    return false;
   }
-  return false;
+}
+
+function triggerOllamaCheck(): void {
+  try {
+    // Run curl in background bash — not as Node.js child, but as independent process
+    // This avoids the LAN routing issue in Node.js launchd context
+    execFileSync('/bin/bash', [
+      '-c',
+      `(/usr/bin/curl -s --connect-timeout 5 --max-time 8 ${OLLAMA_URL}/api/tags > /tmp/ollama-check-raw.txt 2>&1 && echo '{"ok":true,"ts":"'$(date -u +%Y-%m-%dT%H:%M:%SZ)'"}' > ${OLLAMA_CHECK_FILE} || echo '{"ok":false,"ts":"'$(date -u +%Y-%m-%dT%H:%M:%SZ)'","err":"'$(cat /tmp/ollama-check-raw.txt | head -1)'"}' > ${OLLAMA_CHECK_FILE}) &`,
+    ], { timeout: 1000 });
+  } catch {
+    /* fire and forget */
+  }
 }
 
 function checkProcessHealth(): number {
