@@ -134,8 +134,34 @@ SELECT id, thread_subject, direction, description, counterparty, due_date, statu
 -- direction: 'sent'|'received', status: 'open','done','overdue','irrelevant'
 ```
 
-### Užitečné dotazy
+### cone-db MCP server (PREFEROVANÝ PŘÍSTUP)
 
+Máš k dispozici MCP server `cone-db` se strukturovanými tools pro přístup k datům. **Používej MCP tools místo raw SQL** — jsou rychlejší, bezpečnější a vrací formátovaná data.
+
+Dostupné tools (prefix `mcp__cone-db__`):
+- `db_overview` — přehled databáze (počty, velikosti)
+- `entity_lookup` — hledání entit podle jména
+- `entity_detail` — detail entity (fakta, emaily, vztahy)
+- `entity_relations` — graf vztahů entity
+- `email_search` — hledání emailů (od/pro, datum, téma)
+- `email_thread` — celé email vlákno
+- `calendar_events` — kalendářní události (filtruje MS Trans, Infinity)
+- `commitments_list` — otevřené závazky
+- `document_search` — hledání v dokumentech
+- `communications_history` — historie komunikace s osobou
+- `semantic_search` — sémantické hledání v emailech (embeddings)
+- `query` — vlastní SQL dotaz (pro speciální případy)
+
+*Příklad:* Místo `sqlite3 ... "SELECT ..."` použij `mcp__cone-db__entity_lookup name="Winkler"`.
+
+### Raw SQL (fallback)
+
+Pokud MCP tool nestačí, použij přímo SQLite:
+```bash
+sqlite3 /workspace/local-db/cone.db "SELECT ..."
+```
+
+Užitečné dotazy:
 ```sql
 -- Najdi osobu
 SELECT e.id, e.name, f.key, f.value FROM entities e JOIN facts f ON f.entity_id=e.id WHERE e.name LIKE '%Winkler%' AND e.type='person';

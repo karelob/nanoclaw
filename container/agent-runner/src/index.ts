@@ -408,7 +408,8 @@ async function runQuery(
         'TodoWrite', 'ToolSearch', 'Skill',
         'NotebookEdit',
         'mcp__nanoclaw__*',
-        'mcp__ollama__*'
+        'mcp__ollama__*',
+        'mcp__cone-db__*'
       ],
       env: sdkEnv,
       permissionMode: 'bypassPermissions',
@@ -427,6 +428,14 @@ async function runQuery(
         ollama: {
           command: 'node',
           args: [path.join(path.dirname(mcpServerPath), 'ollama-mcp-stdio.js')],
+        },
+        'cone-db': {
+          command: 'node',
+          args: ['/app/cone-mcp/dist/index.js'],
+          env: {
+            CONE_DB_PATH: '/workspace/local-db/cone.db',
+            EMBEDDINGS_DB_PATH: '/workspace/local-db/embeddings.db',
+          },
         },
       },
       hooks: {

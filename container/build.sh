@@ -13,7 +13,19 @@ CONTAINER_RUNTIME="${CONTAINER_RUNTIME:-container}"
 echo "Building NanoClaw agent container image..."
 echo "Image: ${IMAGE_NAME}:${TAG}"
 
+# Copy cone-mcp into build context (pre-built dist + package files)
+CONE_MCP_SRC="${SCRIPT_DIR}/../../cone-mcp"
+CONE_MCP_DST="${SCRIPT_DIR}/cone-mcp"
+rm -rf "${CONE_MCP_DST}"
+mkdir -p "${CONE_MCP_DST}"
+cp "${CONE_MCP_SRC}/package.json" "${CONE_MCP_SRC}/package-lock.json" "${CONE_MCP_DST}/" 2>/dev/null || true
+cp -r "${CONE_MCP_SRC}/dist" "${CONE_MCP_DST}/"
+echo "Copied cone-mcp to build context"
+
 ${CONTAINER_RUNTIME} build -t "${IMAGE_NAME}:${TAG}" .
+
+# Clean up build context copy
+rm -rf "${CONE_MCP_DST}"
 
 echo ""
 echo "Build complete!"
