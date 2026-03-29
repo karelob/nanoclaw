@@ -88,58 +88,96 @@ function logImprovement(
 // Track consecutive Moltbook failures to avoid spamming improvements.md
 let moltbookConsecutiveFailures = 0;
 
-function fetchMoltbookFeed(limit = 10): string[] {
-  if (!MOLTBOOK_KEY) return [];
-  try {
-    const raw = execFileSync(
-      '/usr/bin/curl',
-      [
-        '-s',
-        '--connect-timeout',
-        '10',
-        '--max-time',
-        '15',
-        '-H',
-        `Authorization: Bearer ${MOLTBOOK_KEY}`,
-        `https://www.moltbook.com/api/v1/feed?limit=${limit}`,
-      ],
-      { timeout: 20_000, encoding: 'utf8' },
+// Submolts to fetch from Moltbook (per skill.md: /submolts/{NAME}/feed)
+// announcements first — platform updates, then topic-relevant ones
+const MOLTBOOK_SUBMOLTS = [
+  'announcements',
+  'agents',
+  'memory',
+  'tooling',
+  'ai',
+  'builds',
+  'security',
+];
+
+function fetchMoltbookSubmolt(
+  submolt: string,
+  limit = 5,
+): { submolt: string; posts: string[] } {
+  const raw = execFileSync(
+    '/usr/bin/curl',
+    [
+      '-s',
+      '--connect-timeout',
+      '10',
+      '--max-time',
+      '20',
+      '-H',
+      `Authorization: Bearer ${MOLTBOOK_KEY}`,
+      `https://www.moltbook.com/api/v1/submolts/${submolt}/feed?sort=hot&limit=${limit}`,
+    ],
+    { timeout: 25_000, encoding: 'utf8' },
+  );
+  const data = JSON.parse(raw);
+  if (data.statusCode && data.statusCode >= 400) {
+    throw new Error(
+      `API error ${data.statusCode}: ${data.message || 'unknown'}`,
     );
-    const data = JSON.parse(raw);
-    if (data.statusCode && data.statusCode >= 400) {
-      throw new Error(
-        `API error ${data.statusCode}: ${data.message || 'unknown'}`,
-      );
-    }
-    const posts = (data.posts || []).map(
+  }
+  return {
+    submolt,
+    posts: (data.posts || []).map(
       (p: {
         title?: string;
         content?: string;
         comment_count?: number;
-        id?: string;
+        score?: number;
+        author?: { name?: string };
       }) =>
-        `[${p.comment_count || 0}💬] ${p.title || '?'}\n${(p.content || '').slice(0, 300)}`,
-    );
-    if (posts.length > 0) {
-      moltbookConsecutiveFailures = 0;
+        `[${p.score || 0}⬆ ${p.comment_count || 0}💬 by ${p.author?.name || '?'}] ${p.title || '?'}\n${(p.content || '').slice(0, 300)}`,
+    ),
+  };
+}
+
+function fetchMoltbookFeed(limit = 5): string[] {
+  if (!MOLTBOOK_KEY) return [];
+  const allPosts: string[] = [];
+  let anySuccess = false;
+
+  for (const submolt of MOLTBOOK_SUBMOLTS) {
+    try {
+      const result = fetchMoltbookSubmolt(submolt, limit);
+      if (result.posts.length > 0) {
+        allPosts.push(`── ${submolt} ──`);
+        allPosts.push(...result.posts);
+        anySuccess = true;
+      }
+    } catch (err) {
+      logger.warn(
+        { submolt, err: err instanceof Error ? err.message : String(err) },
+        'Research: Moltbook submolt fetch failed',
+      );
     }
-    return posts;
-  } catch (err) {
+  }
+
+  if (anySuccess) {
+    moltbookConsecutiveFailures = 0;
+  } else if (MOLTBOOK_SUBMOLTS.length > 0) {
     moltbookConsecutiveFailures++;
     logger.warn(
-      { err, consecutive: moltbookConsecutiveFailures },
-      'Research: Moltbook fetch failed',
+      { consecutive: moltbookConsecutiveFailures },
+      'Research: all Moltbook submolts failed',
     );
-    // Log to improvements.md on 3rd consecutive failure (avoid noise from transient issues)
     if (moltbookConsecutiveFailures === 3) {
       logImprovement(
         'missing-tool',
         'Moltbook API opakovaně selhává',
-        `Feed endpoint vrací chybu 3x za sebou. Poslední: ${err instanceof Error ? err.message : String(err)}. Moltbook data nejsou k dispozici pro research.`,
+        `Všechny submolt feed endpointy selhaly 3x za sebou. Zkontrolovat https://www.moltbook.com/skill.md pro aktuální API.`,
       );
     }
-    return [];
   }
+
+  return allPosts;
 }
 
 /** Fetch RSS/Atom feed → extract recent items as text */
