@@ -28,7 +28,7 @@ OPEN_ITEMS = f"{KNOWLEDGE_DIR}/tracking/open_items.md"
 SKIP_ACCOUNTS = {"karel.obluk@evolutionequity.com"}
 
 # Lokální Ollama (RTX 4070 Ti Super, zdarma)
-OLLAMA_URL = "http://10.0.10.70:11434/api/generate"
+OLLAMA_URL = "http://10.0.10.70:11434/api/chat"
 OLLAMA_MODEL = "qwen2.5:14b"
 
 # Zdroj pro dedup
@@ -108,10 +108,12 @@ Pokud žádné závazky nejsou, vrať: []"""
 
 
 def call_ollama(prompt: str) -> str:
-    """Call local Ollama API."""
+    """Call local Ollama API (chat endpoint for thinking mode support)."""
     payload = json.dumps({
         "model": OLLAMA_MODEL,
-        "prompt": prompt,
+        "messages": [
+            {"role": "user", "content": prompt},
+        ],
         "stream": False,
         "options": {"temperature": 0.1, "num_predict": 800},
     }).encode()
@@ -123,7 +125,7 @@ def call_ollama(prompt: str) -> str:
     )
     with urllib.request.urlopen(req, timeout=60) as resp:
         data = json.loads(resp.read())
-    return data.get("response", "")
+    return data.get("message", {}).get("content", "")
 
 
 def extract_with_claude(threads: list[list[dict]], api_key: str = "", dry_run: bool = False) -> list[dict]:

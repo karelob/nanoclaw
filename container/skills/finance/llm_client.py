@@ -39,17 +39,19 @@ class LLMClient:
             raise ValueError(f"Neznámý backend: {self.backend}")
 
     def _ollama(self, prompt: str, system: str = '') -> str:
-        url = 'http://10.0.10.70:11434/api/generate'
+        url = 'http://10.0.10.70:11434/api/chat'
+        messages = []
+        if system:
+            messages.append({'role': 'system', 'content': system})
+        messages.append({'role': 'user', 'content': prompt})
         payload = {
             'model': self.model,
-            'prompt': prompt,
+            'messages': messages,
             'stream': False,
         }
-        if system:
-            payload['system'] = system
         r = requests.post(url, json=payload, timeout=120)
         r.raise_for_status()
-        return r.json().get('response', '')
+        return r.json().get('message', {}).get('content', '')
 
     def _openai(self, prompt: str, system: str = '', max_tokens: int = 4096) -> str:
         import sys

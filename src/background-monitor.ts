@@ -521,9 +521,14 @@ Analyze. Output JSON only:
   try {
     const payload = JSON.stringify({
       model: OLLAMA_MODEL,
-      prompt,
-      system:
-        'You are a system health analyst. Analyze metrics, detect anomalies, score health 1-10. Output ONLY valid JSON, no explanation.',
+      messages: [
+        {
+          role: 'system',
+          content:
+            'You are a system health analyst. Analyze metrics, detect anomalies, score health 1-10. Output ONLY valid JSON, no explanation.',
+        },
+        { role: 'user', content: prompt },
+      ],
       stream: false,
     });
 
@@ -541,7 +546,7 @@ Analyze. Output JSON only:
           '60',
           '-X',
           'POST',
-          `${OLLAMA_URL}/api/generate`,
+          `${OLLAMA_URL}/api/chat`,
           '-H',
           'Content-Type: application/json',
           '-d',
@@ -549,8 +554,8 @@ Analyze. Output JSON only:
         ],
         { timeout: 65_000, encoding: 'utf8' },
       );
-      const data = JSON.parse(stdout) as { response?: string };
-      return data.response?.trim() || null;
+      const data = JSON.parse(stdout) as { message?: { content?: string } };
+      return data.message?.content?.trim() || null;
     } finally {
       try {
         fs.unlinkSync(tmpPayload);

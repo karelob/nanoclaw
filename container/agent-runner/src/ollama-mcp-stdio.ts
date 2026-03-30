@@ -97,16 +97,19 @@ server.tool(
     log(`>>> Generating with ${args.model} (${args.prompt.length} chars)...`);
     writeStatus('generating', `Generating with ${args.model}`);
     try {
+      const messages: Array<{role: string; content: string}> = [];
+      if (args.system) {
+        messages.push({ role: 'system', content: args.system });
+      }
+      messages.push({ role: 'user', content: args.prompt });
+
       const body: Record<string, unknown> = {
         model: args.model,
-        prompt: args.prompt,
+        messages,
         stream: false,
       };
-      if (args.system) {
-        body.system = args.system;
-      }
 
-      const res = await ollamaFetch('/api/generate', {
+      const res = await ollamaFetch('/api/chat', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(body),
@@ -120,20 +123,21 @@ server.tool(
         };
       }
 
-      const data = await res.json() as { response: string; total_duration?: number; eval_count?: number };
+      const data = await res.json() as { message: { content: string }; total_duration?: number; eval_count?: number };
+      const responseText = data.message?.content || '';
 
       let meta = '';
       if (data.total_duration) {
         const secs = (data.total_duration / 1e9).toFixed(1);
         meta = `\n\n[${args.model} | ${secs}s${data.eval_count ? ` | ${data.eval_count} tokens` : ''}]`;
-        log(`<<< Done: ${args.model} | ${secs}s | ${data.eval_count || '?'} tokens | ${data.response.length} chars`);
+        log(`<<< Done: ${args.model} | ${secs}s | ${data.eval_count || '?'} tokens | ${responseText.length} chars`);
         writeStatus('done', `${args.model} | ${secs}s | ${data.eval_count || '?'} tokens`);
       } else {
-        log(`<<< Done: ${args.model} | ${data.response.length} chars`);
-        writeStatus('done', `${args.model} | ${data.response.length} chars`);
+        log(`<<< Done: ${args.model} | ${responseText.length} chars`);
+        writeStatus('done', `${args.model} | ${responseText.length} chars`);
       }
 
-      return { content: [{ type: 'text' as const, text: data.response + meta }] };
+      return { content: [{ type: 'text' as const, text: responseText + meta }] };
     } catch (err) {
       return {
         content: [{ type: 'text' as const, text: `Failed to call Ollama: ${err instanceof Error ? err.message : String(err)}` }],
