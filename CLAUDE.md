@@ -32,6 +32,16 @@ Single Node.js process with skill-based channel system. Channels (WhatsApp, Tele
 | `/qodo-pr-resolver` | Fetch and fix Qodo PR review issues interactively or in batch |
 | `/get-qodo-rules` | Load org- and repo-level coding rules from Qodo before code tasks |
 
+## ZÁSADNÍ PRAVIDLA
+
+**NIKDY nesvádět problémy na síť nebo "intermittent issues".** Když něco nefunguje:
+1. Zjistit PŘESNOU chybu (stderr, exit code, HTTP status)
+2. Ověřit z jiného kontextu (terminál vs launchd)
+3. Diagnostikovat root cause — NIKDY "zkusím restart"
+4. Karel toto zdůraznil opakovaně. Porušení = ztráta důvěry.
+
+**Burlakovy branches NIKDY mergovat bez Karlova explicitního schválení.**
+
 ## System Health — Action Items
 
 `knowledge/tracking/system_health.md` is the **single source of truth** for system health. It is updated every 5 minutes by background-monitor and contains:

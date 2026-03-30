@@ -285,10 +285,14 @@ function triggerOllamaCheck(): void {
   try {
     // Run curl in background bash — not as Node.js child, but as independent process
     // This avoids the LAN routing issue in Node.js launchd context
-    execFileSync('/bin/bash', [
-      '-c',
-      `(/usr/bin/curl -s --connect-timeout 5 --max-time 8 ${OLLAMA_URL}/api/tags > /tmp/ollama-check-raw.txt 2>&1 && echo '{"ok":true,"ts":"'$(date -u +%Y-%m-%dT%H:%M:%SZ)'"}' > ${OLLAMA_CHECK_FILE} || echo '{"ok":false,"ts":"'$(date -u +%Y-%m-%dT%H:%M:%SZ)'","err":"'$(cat /tmp/ollama-check-raw.txt | head -1)'"}' > ${OLLAMA_CHECK_FILE}) &`,
-    ], { timeout: 1000 });
+    execFileSync(
+      '/bin/bash',
+      [
+        '-c',
+        `(/usr/bin/curl -s --connect-timeout 5 --max-time 8 ${OLLAMA_URL}/api/tags > /tmp/ollama-check-raw.txt 2>&1 && echo '{"ok":true,"ts":"'$(date -u +%Y-%m-%dT%H:%M:%SZ)'"}' > ${OLLAMA_CHECK_FILE} || echo '{"ok":false,"ts":"'$(date -u +%Y-%m-%dT%H:%M:%SZ)'","err":"'$(cat /tmp/ollama-check-raw.txt | head -1)'"}' > ${OLLAMA_CHECK_FILE}) &`,
+      ],
+      { timeout: 1000 },
+    );
   } catch {
     /* fire and forget */
   }
