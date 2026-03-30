@@ -43,8 +43,8 @@ const HOME = process.env.HOME || '/Users/karel';
 const CONE_DB = path.join(HOME, 'Develop/nano-cone/cone/db/cone.db');
 const CONE_LOGS = path.join(HOME, 'Develop/nano-cone/cone/logs');
 const BACKUP_LOG = path.join(CONE_LOGS, 'backup.log');
-const OLLAMA_URL = 'http://10.0.10.70:11434';
-const OLLAMA_MODEL = 'qwen2.5:14b';
+const OLLAMA_URL = process.env.OLLAMA_URL || 'http://10.0.10.70:11434';
+const OLLAMA_MODEL = process.env.OLLAMA_MODEL || 'qwen3.5:9b';
 
 const TIER1_INTERVAL = 5 * 60 * 1000; // 5 minutes
 const TIER2_INTERVAL = 60 * 60 * 1000; // 1 hour
@@ -529,6 +529,7 @@ Analyze. Output JSON only:
         },
         { role: 'user', content: prompt },
       ],
+      think: false,
       stream: false,
     });
 

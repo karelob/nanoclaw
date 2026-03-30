@@ -29,7 +29,7 @@ SKIP_ACCOUNTS = {"karel.obluk@evolutionequity.com"}
 
 # Lokální Ollama (RTX 4070 Ti Super, zdarma)
 OLLAMA_URL = "http://10.0.10.70:11434/api/chat"
-OLLAMA_MODEL = "qwen2.5:14b"
+OLLAMA_MODEL = os.environ.get("OLLAMA_MODEL", "qwen3.5:9b")
 
 # Zdroj pro dedup
 SOURCE_RUN = "ollama_nanoclaw"
@@ -114,6 +114,7 @@ def call_ollama(prompt: str) -> str:
         "messages": [
             {"role": "user", "content": prompt},
         ],
+        "think": False,
         "stream": False,
         "options": {"temperature": 0.1, "num_predict": 800},
     }).encode()

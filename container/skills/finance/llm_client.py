@@ -21,11 +21,11 @@ class LLMClient:
 
     def _default_model(self, backend: str) -> str:
         defaults = {
-            'ollama': 'qwen2.5:14b',
+            'ollama': 'qwen3.5:9b',
             'openai': 'gpt-4o-mini',
             'gemini': 'gemini-2.0-flash',
         }
-        return defaults.get(backend, 'qwen2.5:14b')
+        return defaults.get(backend, 'qwen3.5:9b')
 
     def complete(self, prompt: str, system: str = '', max_tokens: int = 4096) -> str:
         """Pošle prompt a vrátí odpověď jako string."""
@@ -47,6 +47,7 @@ class LLMClient:
         payload = {
             'model': self.model,
             'messages': messages,
+            'think': False,
             'stream': False,
         }
         r = requests.post(url, json=payload, timeout=120)

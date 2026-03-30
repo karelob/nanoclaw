@@ -106,6 +106,7 @@ server.tool(
       const body: Record<string, unknown> = {
         model: args.model,
         messages,
+        think: false,
         stream: false,
       };
 
