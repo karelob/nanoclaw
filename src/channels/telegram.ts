@@ -105,6 +105,24 @@ export class TelegramChannel implements Channel {
           ? senderName
           : (ctx.chat as any).title || chatJid;
 
+      // If this is a reply, prepend the original message so the agent has context.
+      const replyTo = ctx.message.reply_to_message;
+      if (replyTo) {
+        const replyText = replyTo.text || replyTo.caption || '[media]';
+        const replyFrom = replyTo.from?.is_bot
+          ? ASSISTANT_NAME
+          : replyTo.from?.first_name || replyTo.from?.username || 'Unknown';
+        const quotedLines = replyText
+          .split('\n')
+          .map((l: string) => `> ${l}`)
+          .join('\n');
+        content = `${quotedLines}\n\n${content}`;
+        logger.debug(
+          { chatJid, replyFrom, replyLength: replyText.length },
+          'Reply context attached',
+        );
+      }
+
       // Translate Telegram @bot_username mentions into TRIGGER_PATTERN format.
       // Telegram @mentions (e.g., @andy_ai_bot) won't match TRIGGER_PATTERN
       // (e.g., ^@Andy\b), so we prepend the trigger when the bot is @mentioned.
