@@ -7,6 +7,10 @@
         "CONE_DB_PATH": "/Users/karel/Develop/nano-cone/cone/db/cone.db",
         "EMBEDDINGS_DB_PATH": "/Users/karel/Develop/nano-cone/cone/db/embeddings.db"
       }
+    },
+    "fantastical": {
+      "command": "uvx",
+      "args": ["fantastical-mcp"]
     }
   }
 }
