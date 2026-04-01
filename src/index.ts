@@ -653,6 +653,17 @@ async function main(): Promise<void> {
     sendMessage: (jid, text) => {
       const channel = findChannel(channels, jid);
       if (!channel) throw new Error(`No channel for JID: ${jid}`);
+      // Store IPC-initiated outbound messages so Šiška sees them in conversation history
+      storeMessage({
+        id: `bot-ipc-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+        chat_jid: jid,
+        sender: ASSISTANT_NAME,
+        sender_name: ASSISTANT_NAME,
+        content: text,
+        timestamp: new Date().toISOString(),
+        is_from_me: false,
+        is_bot_message: true,
+      });
       return channel.sendMessage(jid, text);
     },
     registeredGroups: () => registeredGroups,
