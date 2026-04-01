@@ -788,8 +788,8 @@ export function startBackgroundMonitor(
       // Process claims/resolves from agents before escalation check
       processActionClaims();
 
-      // Escalate to Telegram: unclaimed items older than 15 min (3 Tier 1 cycles)
-      const ESCALATION_DELAY = 15 * 60 * 1000; // 15 minutes
+      // Escalate to Telegram: unclaimed items older than 2 hours (24 Tier 1 cycles)
+      const ESCALATION_DELAY = 2 * 60 * 60 * 1000; // 2 hours
       const escalationCandidates = state.actionItems.filter(
         (item) =>
           !item.resolved &&
