@@ -3,7 +3,9 @@
  * Spawns agent execution in containers and handles IPC
  */
 import { ChildProcess, exec, spawn } from 'child_process';
+import crypto from 'crypto';
 import fs from 'fs';
+import os from 'os';
 import path from 'path';
 
 import {
@@ -266,6 +268,39 @@ function buildContainerArgs(
   return args;
 }
 
+function checkClaudeMdIntegrity(groupFolder: string): boolean {
+  const claudeMdPath = path.join(GROUPS_DIR, groupFolder, 'CLAUDE.md');
+  const hashRefPath = path.join(
+    os.homedir(),
+    '.config',
+    'nanoclaw',
+    `${groupFolder}_claude_md.sha256`,
+  );
+
+  if (!fs.existsSync(claudeMdPath)) return true; // no CLAUDE.md = OK
+  if (!fs.existsSync(hashRefPath)) {
+    logger.warn({ groupFolder }, 'No CLAUDE.md integrity hash found — skipping check');
+    return true;
+  }
+
+  const expected = fs.readFileSync(hashRefPath, 'utf8').trim();
+  const actual = crypto
+    .createHash('sha256')
+    .update(fs.readFileSync(claudeMdPath))
+    .digest('hex');
+
+  if (expected !== actual) {
+    logger.error(
+      { groupFolder, expected, actual },
+      'CLAUDE.md integrity check FAILED — hash mismatch! Aborting container run.',
+    );
+    return false;
+  }
+
+  logger.debug({ groupFolder }, 'CLAUDE.md integrity OK');
+  return true;
+}
+
 export async function runContainerAgent(
   group: RegisteredGroup,
   input: ContainerInput,
@@ -273,6 +308,14 @@ export async function runContainerAgent(
   onOutput?: (output: ContainerOutput) => Promise<void>,
 ): Promise<ContainerOutput> {
   const startTime = Date.now();
+
+  if (!checkClaudeMdIntegrity(group.folder)) {
+    return {
+      status: 'error',
+      result: null,
+      error: `CLAUDE.md integrity check failed for group ${group.folder}`,
+    };
+  }
 
   const groupDir = resolveGroupFolderPath(group.folder);
   fs.mkdirSync(groupDir, { recursive: true });

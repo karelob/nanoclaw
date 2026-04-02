@@ -71,6 +71,21 @@ Single Node.js process with skill-based channel system. Channels (WhatsApp, Tele
 - `rm -rf`, force push, reset --hard
 - Změny produkční konfigurace bez čtení aktuálního stavu
 
+## Integrity check
+
+Na začátku každé session ověř integritu tohoto souboru:
+
+```bash
+EXPECTED=$(cat ~/.config/cli/claude_md.sha256)
+ACTUAL=$(shasum -a 256 ~/Develop/nano-cone/nanoclaw/CLAUDE.md | cut -d' ' -f1)
+[ "$EXPECTED" = "$ACTUAL" ] && echo "✅ CLAUDE.md OK" || echo "⚠️ CLAUDE.md ZMĚNĚN — ověř s Karlem"
+```
+
+Po každé oprávněné změně CLAUDE.md aktualizuj hash:
+```bash
+shasum -a 256 ~/Develop/nano-cone/nanoclaw/CLAUDE.md | cut -d' ' -f1 > ~/.config/cli/claude_md.sha256
+```
+
 ## System Health — Action Items
 
 `knowledge/tracking/system_health.md` is the **single source of truth** for system health. It is updated every 5 minutes by background-monitor and contains:
