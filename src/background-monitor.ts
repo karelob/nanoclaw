@@ -241,7 +241,13 @@ function checkBackupAge(): {
             if (lines[j].includes('=== Záloha zahájena')) break;
             if (lines[j].includes('WARN:')) {
               const warnMatch = lines[j].match(/WARN:\s*(.+)/);
-              if (warnMatch) result.b2Warnings.push(warnMatch[1].trim());
+              if (warnMatch) {
+                const warn = warnMatch[1].trim();
+                // NAS nedostupný při B2 fallback = expected, ne chyba B2
+                if (!warn.includes('NAS nedostupný')) {
+                  result.b2Warnings.push(warn);
+                }
+              }
             }
           }
           break;
@@ -340,6 +346,38 @@ function getRecentErrors(): string[] {
   return errors.slice(-10);
 }
 
+/** Check Burlak health — did it run recently and succeed? */
+function checkBurlakHealth(): { key: string; msg: string } | null {
+  const statusFile = path.join(HOME, '.config/burlak/last_run.json');
+  try {
+    const raw = fs.readFileSync(statusFile, 'utf-8');
+    const status = JSON.parse(raw) as {
+      ts: string;
+      status: 'success' | 'failed';
+      exit_code?: number;
+    };
+    const ageMs = Date.now() - new Date(status.ts).getTime();
+    const ageH = ageMs / (1000 * 60 * 60);
+
+    if (status.status === 'failed') {
+      return {
+        key: 'burlak-failed',
+        msg: `⚠️ Burlak posledn run selhal (exit ${status.exit_code ?? '?'}, ${Math.round(ageH)}h ago)`,
+      };
+    }
+    if (ageH > 5) {
+      return {
+        key: 'burlak-stale',
+        msg: `⚠️ Burlak neběžel ${Math.round(ageH)}h (očekáváno každé 4h)`,
+      };
+    }
+    return null;
+  } catch {
+    // Status file doesn't exist yet — no alert until first run completes
+    return null;
+  }
+}
+
 /** Check email freshness — newest email should be < 6 hours old for primary account */
 function checkEmailFreshness(): string | null {
   try {
@@ -395,6 +433,11 @@ function generateAlerts(m: MetricsSnapshot): { key: string; msg: string }[] {
 
   if (m.syncHealth) {
     alerts.push({ key: 'sync', msg: m.syncHealth });
+  }
+
+  const burlakHealth = checkBurlakHealth();
+  if (burlakHealth) {
+    alerts.push(burlakHealth);
   }
 
   const emailFreshness = checkEmailFreshness();
