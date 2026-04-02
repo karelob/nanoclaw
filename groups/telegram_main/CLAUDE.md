@@ -68,6 +68,16 @@ tags: [tag1, tag2]
 - LinkedIn lookup: pokud potřebuješ info o osobě, navrhni Karlovi vyhledání
 - Duplikace = zlo. Data patří do knowledge/, CLAUDE.md jen odkazuje.
 
+*Co DO knowledge/ ukládat:*
+- Explicitní instrukce od Karla ("remember", "od teď vždy")
+- Ověřená fakta z konverzace (Karel potvrdil, ne jen odhadnuto)
+- Preference ověřené opakovanou zpětnou vazbou
+
+*Co DO knowledge/ NEUKLÁDAT:*
+- Inference a hypotézy ("Karel asi preferuje X")
+- Výsledky jednoho runu bez Karlova potvrzení
+- Cokoliv odvoditelné ze zdrojáku, git history nebo cone.db
+
 ## Kdo je Karel
 
 - *Podnikatel, investor, LP/GP v Evolution Equity Partners, prezident CBAA*
@@ -287,18 +297,24 @@ Dotazy v přirozeném jazyce:
 ## Automatizace
 
 *LaunchAgenty (běží na hostu, plní cone.db):*
-- `com.cone.calendar-sync` — 15 min, Google Calendar sync
-- `com.cone.email-sync` — 1x/hod, Gmail API + IMAP sync
+- `com.cone.calendar-sync` — 15 min, Fantastical/EventKit sync (calendar_helper binary)
+- `com.cone.email-sync` — 1x/hod, Gmail API + IMAP sync + analyze_inbox (7d okno)
 - `com.cone.doc-sync` — denně 6:00, dokumenty + Notion inbox
 - `com.cone.commitments` — denně 7:00, extrakce závazků + Reminders sync
+- `com.cone.newsletter` — denně 6:15, newsletter email (Gemini 2.5 Pro)
+- `com.cone.moltbook-digest` — denně 6:20, Moltbook digest email (Gemini 2.5 Flash)
 - `com.cone.post-briefing` — denně 6:35, Gmail hvězdičky z briefingu
 - `com.cone.backup-nas` — denně 2:00, záloha na NAS
 - `com.cone.backup-b2` — neděle 3:00, offsite záloha B2
 
 *NanoClaw scheduled tasks (tvé vlastní úlohy):*
-- `morning-briefing` — denně 6:30, ranní přehled do Telegramu
-- `daily-improvement-tip` — denně 18:00, návrh vylepšení
+- `morning-briefing` — denně 6:30, ranní přehled do Telegramu (cone_inbox + calendar)
+- `commitment-extraction` — denně 7:00, extrakce závazků z cone_inbox + emailů
+- `situation-update` — denně 7:15, aktualizace situation.md (Agent Log TTL 7d)
+- `daily-improvement-tip` — denně 18:00 (14:00 UTC), návrh vylepšení
 - `weekly-relationship-health` — pondělí 10:00, analýza kontaktů
+- `knowledge-enrichment` — středa 4:00, obohacování knowledge repo
+- `weekly-self-audit` — neděle 5:00, self-audit systému
 
 ## Agent Changelog
 

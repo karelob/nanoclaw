@@ -42,6 +42,35 @@ Single Node.js process with skill-based channel system. Channels (WhatsApp, Tele
 
 **Burlakovy branches NIKDY mergovat bez Karlova explicitního schválení.**
 
+## Memory promotion rules
+
+**DO — ukládat do `~/.claude/projects/.../memory/`:**
+- Explicitní instrukce od Karla ("remember", "from now on", "vždy")
+- Preference ověřené opakovanou zpětnou vazbou (ne jednorázové)
+- Architektonická rozhodnutí ověřená v kódu nebo git historii
+
+**DO NOT — ukládat do memory:**
+- Inference a hypotézy ("Karel pravděpodobně preferuje X")
+- Výsledky nebo stav jedné session bez Karlova potvrzení
+- Cokoliv odvoditelné ze zdrojáku, git history nebo cone.db
+- Ephemeral stav (co aktuálně běží, in-progress work)
+
+## Tool risk tiers (CLI)
+
+**READ-ONLY** (vždy OK): Read, Glob, Grep, Bash readonly, WebFetch/Search
+
+**BOUNDED WRITE** (OK, verifikovat): Edit/Write souborů v repo, git commit
+
+**HIGH-IMPACT** (potvrdit s Karlem pokud nejasné):
+- git push, merge do main
+- launchctl load/unload/kickstart
+- Změny LaunchAgent plistů, scheduled tasks v DB
+- sqlite3 write do cone.db
+
+**NEVER bez explicitního pokynu:**
+- `rm -rf`, force push, reset --hard
+- Změny produkční konfigurace bez čtení aktuálního stavu
+
 ## System Health — Action Items
 
 `knowledge/tracking/system_health.md` is the **single source of truth** for system health. It is updated every 5 minutes by background-monitor and contains:
