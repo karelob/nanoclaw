@@ -86,28 +86,28 @@ const ALERT_ACTION_MAP: Record<
 > = {
   sync: {
     assignee: '@agent',
-    action: 'Zkontrolovat sync log, informovat Karla o stavu',
+    action: 'Zkontrolovat sync log, zkusit opravit. Pokud nelze: vytvořit @cli task',
   },
   'email-freshness': {
     assignee: '@agent',
-    action: 'Zkontrolovat email sync log, informovat Karla',
+    action: 'Zkontrolovat email sync log, zkusit opravit. Pokud nelze: vytvořit @cli task',
   },
   disk: { assignee: '@cli', action: 'Diagnostikovat využití disku, vyčistit' },
   'backup-nas': {
     assignee: '@agent',
-    action: 'Zkontrolovat backup.log, informovat Karla',
+    action: 'Zkontrolovat backup.log, zkusit opravit. Pokud nelze: vytvořit @cli task',
   },
   'backup-nas-warn': {
     assignee: '@agent',
-    action: 'Zkontrolovat backup.log varování, informovat Karla',
+    action: 'Zkontrolovat backup.log varování, zkusit opravit',
   },
   'backup-b2': {
     assignee: '@agent',
-    action: 'Zkontrolovat B2 backup log, informovat Karla',
+    action: 'Zkontrolovat B2 backup log, zkusit opravit. Pokud nelze: vytvořit @cli task',
   },
   'backup-b2-warn': {
     assignee: '@agent',
-    action: 'Zkontrolovat B2 backup varování, informovat Karla',
+    action: 'Zkontrolovat B2 backup varování, zkusit opravit',
   },
   ollama: {
     assignee: '@cli',
@@ -155,6 +155,7 @@ const state: MonitorState & {
   lastOllamaAnalysis: string | null;
   keyFirstActiveAt: Record<string, number>; // ms timestamp when alert key FIRST fired in current episode
   keyLastResolvedAt: Record<string, number>; // ms timestamp when alert key last auto-resolved
+  keyTelegramSent: Record<string, number>; // ms timestamp when Telegram was last sent for this key (within episode)
 } = {
   lastAlerts: new Set(),
   metrics: [],
@@ -168,6 +169,7 @@ const state: MonitorState & {
   lastOllamaAnalysis: null,
   keyFirstActiveAt: {},
   keyLastResolvedAt: {},
+  keyTelegramSent: {},
 };
 
 // ── Tier 1: Deterministic health checks ─────────────
@@ -639,19 +641,25 @@ function addOrUpdateActionItem(alertKey: string, alertMsg: string): void {
   // Episode resets if key was resolved and stayed clear for > 6h
   const now = Date.now();
   const lastResolved = state.keyLastResolvedAt[alertKey] ?? 0;
-  const episodeExpired = lastResolved > 0 && now - lastResolved > 6 * 60 * 60 * 1000;
+  const episodeExpired =
+    lastResolved > 0 && now - lastResolved > 6 * 60 * 60 * 1000;
   if (!(alertKey in state.keyFirstActiveAt) || episodeExpired) {
     state.keyFirstActiveAt[alertKey] = now;
+    delete state.keyTelegramSent[alertKey]; // new episode = can escalate again
   }
+
+  // If Telegram was already sent for this key in the current episode, don't re-escalate
+  const telegramAlreadySent =
+    alertKey in state.keyTelegramSent && !episodeExpired;
 
   state.actionItems.push({
     assignee: mapping.assignee,
     key: alertKey,
     description: `${alertMsg} — ${mapping.action}`,
     created: new Date().toISOString().replace('T', ' ').slice(0, 16),
+    telegramSent: telegramAlreadySent,
   });
 }
-
 
 function resolveActionItem(alertKey: string, by = 'monitor', note = ''): void {
   for (const item of state.actionItems) {
@@ -862,8 +870,27 @@ export function startBackgroundMonitor(
           .map((item) => item.description)
           .join('\n');
         await sendAlert(`*System Monitor — neřešené problémy*\n${msg}`);
+        const today = new Date().toISOString().slice(0, 10);
         for (const item of escalationCandidates) {
           item.telegramSent = true;
+          state.keyTelegramSent[item.key] = Date.now();
+          // Write @cli task so CLI can investigate with Karel
+          try {
+            const taskPath = path.join(
+              KNOWLEDGE_REPO_PATH,
+              'tracking',
+              'tasks',
+              `cli-${item.key}-${today}.md`,
+            );
+            if (!fs.existsSync(taskPath)) {
+              fs.writeFileSync(
+                taskPath,
+                `# @cli task: ${item.key} (${today})\n\n> Vygenerováno automaticky — background-monitor eskaloval na Telegram po 2h bez řešení.\n\n## Problém\n\n${item.description}\n\n## Akce\n\n- [ ] Diagnostikovat root cause\n- [ ] Opravit nebo navrhnout řešení Karlovi\n`,
+              );
+            }
+          } catch (e) {
+            logger.warn({ key: item.key, err: e }, 'Failed to write @cli task');
+          }
         }
       }
 
