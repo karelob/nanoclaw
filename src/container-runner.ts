@@ -279,7 +279,10 @@ function checkClaudeMdIntegrity(groupFolder: string): boolean {
 
   if (!fs.existsSync(claudeMdPath)) return true; // no CLAUDE.md = OK
   if (!fs.existsSync(hashRefPath)) {
-    logger.warn({ groupFolder }, 'No CLAUDE.md integrity hash found — skipping check');
+    logger.warn(
+      { groupFolder },
+      'No CLAUDE.md integrity hash found — skipping check',
+    );
     return true;
   }
 

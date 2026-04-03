@@ -153,6 +153,8 @@ const state: MonitorState & {
   alertLog: AlertLogEntry[];
   actionItems: ActionItem[];
   lastOllamaAnalysis: string | null;
+  keyFirstActiveAt: Record<string, number>; // ms timestamp when alert key FIRST fired in current episode
+  keyLastResolvedAt: Record<string, number>; // ms timestamp when alert key last auto-resolved
 } = {
   lastAlerts: new Set(),
   metrics: [],
@@ -164,6 +166,8 @@ const state: MonitorState & {
   alertLog: [],
   actionItems: [],
   lastOllamaAnalysis: null,
+  keyFirstActiveAt: {},
+  keyLastResolvedAt: {},
 };
 
 // ── Tier 1: Deterministic health checks ─────────────
@@ -631,6 +635,15 @@ function addOrUpdateActionItem(alertKey: string, alertMsg: string): void {
   );
   if (existing) return;
 
+  // Track first time this key fired — persists across resolve/re-trigger cycles within an episode
+  // Episode resets if key was resolved and stayed clear for > 6h
+  const now = Date.now();
+  const lastResolved = state.keyLastResolvedAt[alertKey] ?? 0;
+  const episodeExpired = lastResolved > 0 && now - lastResolved > 6 * 60 * 60 * 1000;
+  if (!(alertKey in state.keyFirstActiveAt) || episodeExpired) {
+    state.keyFirstActiveAt[alertKey] = now;
+  }
+
   state.actionItems.push({
     assignee: mapping.assignee,
     key: alertKey,
@@ -638,6 +651,7 @@ function addOrUpdateActionItem(alertKey: string, alertMsg: string): void {
     created: new Date().toISOString().replace('T', ' ').slice(0, 16),
   });
 }
+
 
 function resolveActionItem(alertKey: string, by = 'monitor', note = ''): void {
   for (const item of state.actionItems) {
@@ -647,6 +661,7 @@ function resolveActionItem(alertKey: string, by = 'monitor', note = ''): void {
       item.resolvedNote = note;
     }
   }
+  state.keyLastResolvedAt[alertKey] = Date.now();
 }
 
 /**
@@ -831,15 +846,15 @@ export function startBackgroundMonitor(
       // Process claims/resolves from agents before escalation check
       processActionClaims();
 
-      // Escalate to Telegram: unclaimed items older than 2 hours (24 Tier 1 cycles)
+      // Escalate to Telegram: unclaimed items whose alert key has been active > 2 hours
+      // Uses keyFirstActiveAt so resolve/re-trigger cycles don't reset the timer
       const ESCALATION_DELAY = 2 * 60 * 60 * 1000; // 2 hours
       const escalationCandidates = state.actionItems.filter(
         (item) =>
           !item.resolved &&
           !item.claimedBy &&
           !item.telegramSent &&
-          Date.now() -
-            new Date(item.created.replace(' ', 'T') + ':00Z').getTime() >
+          Date.now() - (state.keyFirstActiveAt[item.key] ?? Date.now()) >
             ESCALATION_DELAY,
       );
       if (escalationCandidates.length > 0) {
