@@ -312,8 +312,9 @@ Dotazy v přirozeném jazyce:
 - `com.cone.backup-b2` — neděle 3:00, offsite záloha B2
 
 *NanoClaw scheduled tasks (tvé vlastní úlohy):*
-- `morning-briefing` — denně 6:30, ranní přehled do Telegramu (cone_inbox + calendar)
+- `morning-briefing` — denně 6:30, ranní přehled do Telegramu (cone_inbox + calendar + konflikty dnes)
 - `commitment-extraction` — denně 7:00, extrakce závazků z cone_inbox + emailů
+- `calendar-review` — denně 7:00, proaktivní kontrola konfliktů v kalendáři (14 dní), alert jen při novinkách
 - `situation-update` — denně 7:15, aktualizace situation.md (Agent Log TTL 7d)
 - `daily-improvement-tip` — denně 18:00 (14:00 UTC), návrh vylepšení
 - `weekly-relationship-health` — pondělí 10:00, analýza kontaktů
