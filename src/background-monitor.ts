@@ -86,16 +86,19 @@ const ALERT_ACTION_MAP: Record<
 > = {
   sync: {
     assignee: '@agent',
-    action: 'Zkontrolovat sync log, zkusit opravit. Pokud nelze: vytvořit @cli task',
+    action:
+      'Zkontrolovat sync log, zkusit opravit. Pokud nelze: vytvořit @cli task',
   },
   'email-freshness': {
     assignee: '@agent',
-    action: 'Zkontrolovat email sync log, zkusit opravit. Pokud nelze: vytvořit @cli task',
+    action:
+      'Zkontrolovat email sync log, zkusit opravit. Pokud nelze: vytvořit @cli task',
   },
   disk: { assignee: '@cli', action: 'Diagnostikovat využití disku, vyčistit' },
   'backup-nas': {
     assignee: '@agent',
-    action: 'Zkontrolovat backup.log, zkusit opravit. Pokud nelze: vytvořit @cli task',
+    action:
+      'Zkontrolovat backup.log, zkusit opravit. Pokud nelze: vytvořit @cli task',
   },
   'backup-nas-warn': {
     assignee: '@agent',
@@ -103,7 +106,8 @@ const ALERT_ACTION_MAP: Record<
   },
   'backup-b2': {
     assignee: '@agent',
-    action: 'Zkontrolovat B2 backup log, zkusit opravit. Pokud nelze: vytvořit @cli task',
+    action:
+      'Zkontrolovat B2 backup log, zkusit opravit. Pokud nelze: vytvořit @cli task',
   },
   'backup-b2-warn': {
     assignee: '@agent',

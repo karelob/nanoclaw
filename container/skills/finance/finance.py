@@ -26,7 +26,8 @@ ensure_cone_scripts_importable()
 import connectors.gdrive as _gdrive_mod
 _gdrive_mod.TOKEN_FILE = TOKEN_FILE
 
-from parsers import parse_kb_bank_statement, parse_xlsx_cashflow, parse_pdf_text, BankStatement
+from parsers import (parse_kb_bank_statement, parse_xlsx_cashflow, parse_pdf_text,
+                     parse_statement, detect_bank_type, BankStatement)
 from llm_client import LLMClient, FINANCE_SYSTEM_PROMPT
 from gdrive_finance import get_bank_statements, get_invoices
 from accounting import run_pmd, run_annual, analyze_annual_reports
@@ -55,7 +56,8 @@ def analyze_bank_statement(stmt: BankStatement, user_question: str = '') -> str:
     for t in stmt.transactions:
         sign = '+' if t.amount > 0 else ''
         vs_part = f" VS:{t.vs}" if t.vs else ''
-        lines.append(f"  {t.date}  {sign}{float(t.amount):>12,.2f} {t.currency}{vs_part}  {t.description}")
+        note_part = f"  [{t.note}]" if t.note else ''
+        lines.append(f"  {t.date}  {sign}{float(t.amount):>12,.2f} {t.currency}{vs_part}  {t.description}{note_part}")
 
     context = '\n'.join(lines)
     prompt = f"{context}\n\n---\n"
@@ -87,9 +89,11 @@ def run_bank_statement(company: str, year: str, month: str, user_q: str = '') ->
     results = []
     for pdf in pdfs:
         try:
-            stmt = parse_kb_bank_statement(pdf)
+            bank = detect_bank_type(pdf)
+            stmt = parse_statement(pdf)
+            bank_label = {'kb': 'KB', 'rb': 'Raiffeisen', 'revolut': 'Revolut'}.get(bank, bank.upper())
             analysis = analyze_bank_statement(stmt, user_q)
-            results.append(f"📄 *{pdf.name}*\n{analysis}")
+            results.append(f"📄 *{pdf.name}* [{bank_label}]\n{analysis}")
         except Exception as e:
             results.append(f"⚠️ {pdf.name}: chyba parsování — {e}")
 

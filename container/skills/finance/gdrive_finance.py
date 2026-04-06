@@ -209,8 +209,11 @@ def get_bank_statements(company: str, year: str, month: str,
         # New format: year > YYYYMM > Výpisy/
         month_dir = local_year / f"{year}{month}"
         if month_dir.exists():
+            import unicodedata
             for sub in sorted(month_dir.iterdir()):
-                if sub.is_dir() and 'výpis' in sub.name.lower():
+                # Normalize NFD→NFC (macOS stores filenames in NFD)
+                sub_nfc = unicodedata.normalize('NFC', sub.name).lower()
+                if sub.is_dir() and 'výpis' in sub_nfc:
                     return _collect_local_files(sub)
             # No výpisy subfolder — return all from month
             return _collect_local_files(month_dir)

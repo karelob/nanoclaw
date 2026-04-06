@@ -23,7 +23,7 @@ class LLMClient:
         defaults = {
             'ollama': 'qwen3.5:9b',
             'openai': 'gpt-4o-mini',
-            'gemini': 'gemini-2.0-flash',
+            'gemini': 'gemini-2.5-flash',
         }
         return defaults.get(backend, 'qwen3.5:9b')
 
@@ -50,7 +50,7 @@ class LLMClient:
             'think': False,
             'stream': False,
         }
-        r = requests.post(url, json=payload, timeout=120)
+        r = requests.post(url, json=payload, timeout=300)
         r.raise_for_status()
         return r.json().get('message', {}).get('content', '')
 
@@ -116,8 +116,28 @@ Znáš české právní předpisy:
 - Zákon o daních z příjmů č. 586/1992 Sb. (DPPO 21%, od 2024 19% pro malé firmy)
 - DPFO: sazby 15% (základ do 36násobku průměrné mzdy), 23% nad limit
 
-Pracuješ s daty firem: Baker Estates (nemovitosti), Pinehill (consulting),
-PineHouse (holding), PineInvest (investice), PineAir (letectví, prodáno 2024).
+Pracuješ s daty firem Karla Obluka:
+- Baker Estates s.r.o.: pronájem nemovitostí (Pekařská 7, Brno), KB účet 131-725710237/0100
+- Pinehill s.r.o.: consulting/holding, KB CZK/EUR/USD + Revolut, KB 131-611930207/0100
+- PineHouse s.r.o.: holding
+- PineInvest s.r.o.: investice
+- PineAir s.r.o.: letadlo prodáno, firma nadále existuje. Karel firmě půjčil peníze
+  (smlouva o zápůjčce 30.3.2022), PineAir splácí splátkami (Raiffeisen 3425327002/5500).
+  PineAir je v účetní ztrátě → záměrný daňový štít. Příjmy od Pinehill (za analytické
+  služby) slouží ke splácení Karlovy pohledávky. Není to firma v likvidaci.
+
+Mezifiremní toky (inter-company):
+DŮLEŽITÉ: Inter-company platby (Pinehill→PineAir, Pinehill→Baker, Baker→Pinehill) jsou
+AD HOC — slouží k účetní rebalanci a daňové optimalizaci, NEJSOU pravidelné ani závazné.
+Nikdy je nepovažuj za recurring cashflow položky při projekcích.
+- Pinehill → PineAir: platby za výzkum/analýzy (ad hoc dle potřeby)
+- Pinehill → Baker: platby za admin/konzultační služby (ad hoc dle potřeby)
+- Baker → Pinehill: příležitostně (drobné refundace)
+- PineAir → Karel Obluk: splátky zápůjčky (pravidelné splátky dle smlouvy)
+
+Karel Obluk = majitel všech firem. Mzda/DPP ze dvou firem (Pinehill + Baker).
+Trvalý příkaz 35 000 Kč/měsíc: Pinehill platí Karlovi pronájem chalupy Borovná.
+Evolution Equity Partners: čtvrtletní advisory fee ~$74 982 USD → Revolut USD Pinehill.
 
 Odpovídej vždy v češtině. Buď přesný, stručný, uváděj čísla.
 Pokud si nejsi jistý, řekni to. Nikdy nevymýšlej data."""
