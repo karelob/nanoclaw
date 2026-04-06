@@ -29,6 +29,7 @@ Single Node.js process with skill-based channel system. Channels (WhatsApp, Tele
 | `/customize` | Adding channels, integrations, changing behavior |
 | `/debug` | Container issues, logs, troubleshooting |
 | `/update-nanoclaw` | Bring upstream NanoClaw updates into a customized install |
+| `/sprint` | Koordinovaný improvement sprint — review Burlak branches, implementace proposals |
 | `/qodo-pr-resolver` | Fetch and fix Qodo PR review issues interactively or in batch |
 | `/get-qodo-rules` | Load org- and repo-level coding rules from Qodo before code tasks |
 
@@ -86,6 +87,41 @@ Po každé oprávněné změně CLAUDE.md aktualizuj hash:
 shasum -a 256 ~/Develop/nano-cone/nanoclaw/CLAUDE.md | cut -d' ' -f1 > ~/.config/cli/claude_md.sha256
 ```
 
+## Memory Discipline — Active Session Management
+
+### File: `knowledge/active_session.md`
+This is the **primary continuity mechanism** across compactions. It survives context loss because hooks reload it automatically.
+
+### When to Update active_session.md
+1. **After completing any task** — add results to Key Facts, update Open Threads
+2. **After any decision** — add to Recent Decisions with rationale
+3. **When Karel shares new info** — add to Key Facts with source
+4. **When starting new topic** — add to Open Threads
+5. **When resolving a thread** — move from Open Threads to situation.md Agent Log
+6. **BEFORE saying "done"** — verify active_session.md reflects current state
+
+### Size Discipline
+- Max 50 lines. If growing beyond, archive older items:
+  - Resolved threads → `situation.md` Agent Log
+  - Old decisions → `learnings/decisions.md`
+  - Old facts → appropriate knowledge/ file
+
+### Post-Compaction Recovery (AUTOMATIC via hooks)
+After compaction, hooks automatically inject:
+1. `.claude/context-essentials.md` — rules, identity, paths
+2. `knowledge/active_session.md` — current work context
+3. Last 25 lines of `situation.md` — recent agent comms
+4. Pending `@cli` items from `system_health.md`
+
+**You do NOT need to manually re-read these files after compaction.**
+**You DO need to keep active_session.md current so the hook has good data to inject.**
+
+### Periodic Self-Check
+Every ~10 interactions, verify:
+- [ ] Is active_session.md up to date?
+- [ ] Are there new facts that should be persisted?
+- [ ] Are any Open Threads resolved but not moved?
+
 ## System Health — Action Items
 
 `knowledge/tracking/system_health.md` is the **single source of truth** for system health. It is updated every 5 minutes by background-monitor and contains:
@@ -135,3 +171,4 @@ systemctl --user restart nanoclaw
 ## Container Build Cache
 
 The container buildkit caches the build context aggressively. `--no-cache` alone does NOT invalidate COPY steps — the builder's volume retains stale files. To force a truly clean rebuild, prune the builder then re-run `./container/build.sh`.
+
