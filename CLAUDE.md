@@ -87,6 +87,14 @@ Po každé oprávněné změně CLAUDE.md aktualizuj hash:
 shasum -a 256 ~/Develop/nano-cone/nanoclaw/CLAUDE.md | cut -d' ' -f1 > ~/.config/cli/claude_md.sha256
 ```
 
+**POZOR:** Každý komponent hlídá **jiný** soubor — nikdy nenastavuj stejnou hodnotu do více hash souborů:
+
+| Hash soubor | Hlídá |
+|---|---|
+| `~/.config/cli/claude_md.sha256` | `nanoclaw/CLAUDE.md` (tento soubor) |
+| `~/.config/nanoclaw/telegram_main_claude_md.sha256` | `groups/telegram_main/CLAUDE.md` |
+| `~/.config/burlak/claude_md.sha256` | `burlak/CLAUDE.md` |
+
 ## Memory Discipline — Active Session Management
 
 ### File: `knowledge/active_session.md`

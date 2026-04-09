@@ -300,6 +300,17 @@ export class TelegramChannel implements Channel {
           );
           resolve();
         },
+      }).catch((err) => {
+        const is409 =
+          err?.error_code === 409 || String(err?.message).includes('409');
+        if (is409) {
+          logger.warn('Telegram 409 conflict — reconnecting in 35s');
+          // Recreate bot from scratch — grammY can't restart a failed instance
+          setTimeout(() => this.connect(), 35_000);
+        } else {
+          logger.error({ err }, 'Telegram polling stopped');
+        }
+        resolve(); // don't block startup
       });
     });
   }
