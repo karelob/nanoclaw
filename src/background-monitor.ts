@@ -20,7 +20,7 @@
  *   - Proposals, not actions (except auto-kill for DB locks)
  *   - Escalation: Tier 1 detects → Tier 2 analyzes
  */
-import { execFileSync } from 'child_process';
+import { execFileSync, execSync } from 'child_process';
 import fs from 'fs';
 import os from 'os';
 import path from 'path';
@@ -416,7 +416,6 @@ function checkEmailToken(): string | null {
   }
 
   function spawnCheck() {
-    const { execSync } = require('child_process');
     try {
       execSync(
         `(python3 ${sendScript} --check > /dev/null 2>&1 && echo '{"ok":true,"ts":"'$(date -u +%Y-%m-%dT%H:%M:%SZ)'"}' > ${EMAIL_TOKEN_CHECK_FILE} || echo '{"ok":false,"ts":"'$(date -u +%Y-%m-%dT%H:%M:%SZ)'"}' > ${EMAIL_TOKEN_CHECK_FILE}) &`,
