@@ -3,6 +3,7 @@
  * Parses log files to detect failures and stale syncs.
  * Runs on host (no container, no tokens).
  */
+import { execFileSync } from 'child_process';
 import fs from 'fs';
 import path from 'path';
 
@@ -185,7 +186,6 @@ function formatAge(date: Date): string {
  */
 function checkDbLock(): string | null {
   try {
-    const { execFileSync } = require('child_process');
     const lsofOut = execFileSync(
       'lsof',
       [
