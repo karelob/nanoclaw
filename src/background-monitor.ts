@@ -422,7 +422,9 @@ function checkEmailToken(): string | null {
         `(python3 ${sendScript} --check > /dev/null 2>&1 && echo '{"ok":true,"ts":"'$(date -u +%Y-%m-%dT%H:%M:%SZ)'"}' > ${EMAIL_TOKEN_CHECK_FILE} || echo '{"ok":false,"ts":"'$(date -u +%Y-%m-%dT%H:%M:%SZ)'"}' > ${EMAIL_TOKEN_CHECK_FILE}) &`,
         { shell: '/bin/bash' },
       );
-    } catch { /* best-effort */ }
+    } catch {
+      /* best-effort */
+    }
   }
 }
 
