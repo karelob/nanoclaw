@@ -388,6 +388,44 @@ function checkBurlakHealth(): { key: string; msg: string } | null {
   }
 }
 
+const EMAIL_TOKEN_CHECK_FILE = '/tmp/email-token-check.json';
+
+/** Check Gmail send token validity — runs python3 send_email.py --check hourly via temp file */
+function checkEmailToken(): string | null {
+  const CONE_SCRIPTS = path.join(HOME, 'Develop/nano-cone/cone/scripts');
+  const sendScript = path.join(CONE_SCRIPTS, 'send_email.py');
+
+  try {
+    const raw = fs.readFileSync(EMAIL_TOKEN_CHECK_FILE, 'utf-8');
+    const result = JSON.parse(raw) as { ok: boolean; ts: string; err?: string };
+    const ageMs = Date.now() - new Date(result.ts).getTime();
+
+    // Re-run check if result is older than 1 hour
+    if (ageMs > 60 * 60 * 1000) {
+      spawnCheck();
+    }
+
+    if (!result.ok) {
+      return `🔐 Gmail send token expiroval — spusť: python3 cone/scripts/auth_google.py`;
+    }
+    return null;
+  } catch {
+    // No result file yet — bootstrap the check
+    spawnCheck();
+    return null;
+  }
+
+  function spawnCheck() {
+    const { execSync } = require('child_process');
+    try {
+      execSync(
+        `(python3 ${sendScript} --check > /dev/null 2>&1 && echo '{"ok":true,"ts":"'$(date -u +%Y-%m-%dT%H:%M:%SZ)'"}' > ${EMAIL_TOKEN_CHECK_FILE} || echo '{"ok":false,"ts":"'$(date -u +%Y-%m-%dT%H:%M:%SZ)'"}' > ${EMAIL_TOKEN_CHECK_FILE}) &`,
+        { shell: '/bin/bash' },
+      );
+    } catch { /* best-effort */ }
+  }
+}
+
 /** Check email freshness — newest email should be < 6 hours old for primary account */
 function checkEmailFreshness(): string | null {
   try {
@@ -453,6 +491,11 @@ function generateAlerts(m: MetricsSnapshot): { key: string; msg: string }[] {
   const emailFreshness = checkEmailFreshness();
   if (emailFreshness) {
     alerts.push({ key: 'email-freshness', msg: emailFreshness });
+  }
+
+  const emailToken = checkEmailToken();
+  if (emailToken) {
+    alerts.push({ key: 'email-token', msg: emailToken });
   }
 
   if (m.diskUsedPct > 90) {

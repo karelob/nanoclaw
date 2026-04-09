@@ -197,7 +197,7 @@ SELECT summary, start_dt, location FROM events WHERE start_dt > date('now') AND 
 SELECT description, counterparty, due_date, direction FROM commitments WHERE status='open' ORDER BY due_date;
 ```
 
-### Python skripty (read-only)
+### Python skripty
 Cesta: `/workspace/extra/cone-scripts/`
 - `morning_briefing.py` — ranní briefing (commitments, unanswered emails)
 - `extract_commitments.py` — extrakce závazků z emailů
@@ -206,6 +206,15 @@ Cesta: `/workspace/extra/cone-scripts/`
 - `utils/ai.py` — LLM routing (Gemini, OpenAI, Ollama)
 - `utils/db.py` — DB utility vrstva
 - `connectors/` — Gmail API, IMAP, GDrive, Calendar, ARES
+
+**Odeslání emailu Karlovi:**
+```bash
+python3 /workspace/extra/cone-scripts/send_email.py \
+  --subject "Předmět" \
+  --body "Tělo (plain text nebo HTML)"
+# Příjemce je vždy karel@obluk.com (zadrátováno)
+# S přílohou: --attachment /tmp/soubor.pdf
+```
 
 ### Sémantické vyhledávání v emailech (writable skripty)
 Cesta: `/home/node/.claude/scripts/`

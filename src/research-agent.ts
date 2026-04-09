@@ -13,6 +13,7 @@
  */
 import { execFileSync } from 'child_process';
 import fs from 'fs';
+import { tmpdir } from 'os';
 import path from 'path';
 
 import { KNOWLEDGE_REPO_PATH } from './config.js';
@@ -289,10 +290,7 @@ async function callGemini(prompt: string): Promise<string | null> {
       generationConfig: { maxOutputTokens: 8192 },
     });
 
-    const tmpFile = path.join(
-      require('os').tmpdir(),
-      'nanoclaw-research-payload.json',
-    );
+    const tmpFile = path.join(tmpdir(), 'nanoclaw-research-payload.json');
     fs.writeFileSync(tmpFile, payload);
 
     try {
@@ -345,7 +343,7 @@ function moltbookPost(
   if (!MOLTBOOK_KEY) return false;
   try {
     const payload = JSON.stringify({ title, body, submolt_name: submolt });
-    const tmpFile = path.join(require('os').tmpdir(), 'moltbook-post.json');
+    const tmpFile = path.join(tmpdir(), 'moltbook-post.json');
     fs.writeFileSync(tmpFile, payload);
     try {
       execFileSync(
