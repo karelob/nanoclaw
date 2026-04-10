@@ -19,20 +19,9 @@ Single Node.js process with skill-based channel system. Channels (WhatsApp, Tele
 | `src/task-scheduler.ts` | Runs scheduled tasks |
 | `src/db.ts` | SQLite operations |
 | `groups/{name}/CLAUDE.md` | Per-group memory (isolated) |
-| `container/skills/` | Skills loaded inside agent containers (browser, status, formatting) |
-
-## Secrets / Credentials / Proxy (OneCLI)
-
-API keys, secret keys, OAuth tokens, and auth credentials are managed by the OneCLI gateway — which handles secret injection into containers at request time, so no keys or tokens are ever passed to containers directly. Run `onecli --help`.
+| `container/skills/agent-browser.md` | Browser automation tool (available to all agents via Bash) |
 
 ## Skills
-
-Four types of skills exist in NanoClaw. See [CONTRIBUTING.md](CONTRIBUTING.md) for the full taxonomy and guidelines.
-
-- **Feature skills** — merge a `skill/*` branch to add capabilities (e.g. `/add-telegram`, `/add-slack`)
-- **Utility skills** — ship code files alongside SKILL.md (e.g. `/claw`)
-- **Operational skills** — instruction-only workflows, always on `main` (e.g. `/setup`, `/debug`)
-- **Container skills** — loaded inside agent containers at runtime (`container/skills/`)
 
 | Skill | When to Use |
 |-------|-------------|
@@ -40,13 +29,125 @@ Four types of skills exist in NanoClaw. See [CONTRIBUTING.md](CONTRIBUTING.md) f
 | `/customize` | Adding channels, integrations, changing behavior |
 | `/debug` | Container issues, logs, troubleshooting |
 | `/update-nanoclaw` | Bring upstream NanoClaw updates into a customized install |
-| `/init-onecli` | Install OneCLI Agent Vault and migrate `.env` credentials to it |
+| `/sprint` | Koordinovaný improvement sprint — review Burlak branches, implementace proposals |
 | `/qodo-pr-resolver` | Fetch and fix Qodo PR review issues interactively or in batch |
 | `/get-qodo-rules` | Load org- and repo-level coding rules from Qodo before code tasks |
 
-## Contributing
+## ZÁSADNÍ PRAVIDLA
 
-Before creating a PR, adding a skill, or preparing any contribution, you MUST read [CONTRIBUTING.md](CONTRIBUTING.md). It covers accepted change types, the four skill types and their guidelines, SKILL.md format rules, PR requirements, and the pre-submission checklist (searching for existing PRs/issues, testing, description format).
+**NIKDY nesvádět problémy na síť nebo "intermittent issues".** Když něco nefunguje:
+1. Zjistit PŘESNOU chybu (stderr, exit code, HTTP status)
+2. Ověřit z jiného kontextu (terminál vs launchd)
+3. Diagnostikovat root cause — NIKDY "zkusím restart"
+4. Karel toto zdůraznil opakovaně. Porušení = ztráta důvěry.
+
+**Burlakovy branches NIKDY mergovat bez Karlova explicitního schválení.**
+
+## Memory promotion rules
+
+**DO — ukládat do `~/.claude/projects/.../memory/`:**
+- Explicitní instrukce od Karla ("remember", "from now on", "vždy")
+- Preference ověřené opakovanou zpětnou vazbou (ne jednorázové)
+- Architektonická rozhodnutí ověřená v kódu nebo git historii
+
+**DO NOT — ukládat do memory:**
+- Inference a hypotézy ("Karel pravděpodobně preferuje X")
+- Výsledky nebo stav jedné session bez Karlova potvrzení
+- Cokoliv odvoditelné ze zdrojáku, git history nebo cone.db
+- Ephemeral stav (co aktuálně běží, in-progress work)
+
+## Tool risk tiers (CLI)
+
+**READ-ONLY** (vždy OK): Read, Glob, Grep, Bash readonly, WebFetch/Search
+
+**BOUNDED WRITE** (OK, verifikovat): Edit/Write souborů v repo, git commit
+
+**HIGH-IMPACT** (potvrdit s Karlem pokud nejasné):
+- git push, merge do main
+- launchctl load/unload/kickstart
+- Změny LaunchAgent plistů, scheduled tasks v DB
+- sqlite3 write do cone.db
+
+**NEVER bez explicitního pokynu:**
+- `rm -rf`, force push, reset --hard
+- Změny produkční konfigurace bez čtení aktuálního stavu
+
+## Integrity check
+
+Na začátku každé session ověř integritu tohoto souboru:
+
+```bash
+EXPECTED=$(cat ~/.config/cli/claude_md.sha256)
+ACTUAL=$(shasum -a 256 ~/Develop/nano-cone/nanoclaw/CLAUDE.md | cut -d' ' -f1)
+[ "$EXPECTED" = "$ACTUAL" ] && echo "✅ CLAUDE.md OK" || echo "⚠️ CLAUDE.md ZMĚNĚN — ověř s Karlem"
+```
+
+Po každé oprávněné změně CLAUDE.md aktualizuj hash:
+```bash
+shasum -a 256 ~/Develop/nano-cone/nanoclaw/CLAUDE.md | cut -d' ' -f1 > ~/.config/cli/claude_md.sha256
+```
+
+**POZOR:** Každý komponent hlídá **jiný** soubor — nikdy nenastavuj stejnou hodnotu do více hash souborů:
+
+| Hash soubor | Hlídá |
+|---|---|
+| `~/.config/cli/claude_md.sha256` | `nanoclaw/CLAUDE.md` (tento soubor) |
+| `~/.config/nanoclaw/telegram_main_claude_md.sha256` | `groups/telegram_main/CLAUDE.md` |
+| `~/.config/burlak/claude_md.sha256` | `burlak/CLAUDE.md` |
+
+## Memory Discipline — Active Session Management
+
+### File: `knowledge/active_session.md`
+This is the **primary continuity mechanism** across compactions. It survives context loss because hooks reload it automatically.
+
+### When to Update active_session.md
+1. **After completing any task** — add results to Key Facts, update Open Threads
+2. **After any decision** — add to Recent Decisions with rationale
+3. **When Karel shares new info** — add to Key Facts with source
+4. **When starting new topic** — add to Open Threads
+5. **When resolving a thread** — move from Open Threads to situation.md Agent Log
+6. **BEFORE saying "done"** — verify active_session.md reflects current state
+
+### Size Discipline
+- Max 50 lines. If growing beyond, archive older items:
+  - Resolved threads → `situation.md` Agent Log
+  - Old decisions → `learnings/decisions.md`
+  - Old facts → appropriate knowledge/ file
+
+### Post-Compaction Recovery (AUTOMATIC via hooks)
+After compaction, hooks automatically inject:
+1. `.claude/context-essentials.md` — rules, identity, paths
+2. `knowledge/active_session.md` — current work context
+3. Last 25 lines of `situation.md` — recent agent comms
+4. Pending `@cli` items from `system_health.md`
+
+**You do NOT need to manually re-read these files after compaction.**
+**You DO need to keep active_session.md current so the hook has good data to inject.**
+
+### Periodic Self-Check
+Every ~10 interactions, verify:
+- [ ] Is active_session.md up to date?
+- [ ] Are there new facts that should be persisted?
+- [ ] Are any Open Threads resolved but not moved?
+
+## System Health — Action Items
+
+`knowledge/tracking/system_health.md` is the **single source of truth** for system health. It is updated every 5 minutes by background-monitor and contains:
+- Current metrics (sync, backup, disk, Ollama)
+- Recent alerts (what was sent to Telegram)
+- **Action Items** with assignees (`@agent`, `@cli`, `@karel`)
+
+**CLI sessions MUST:**
+1. Read `system_health.md` at session start — check for `@cli` action items, fix proactively
+2. Read `situation.md` Agent Log — check for `@cli` tasks from other agents
+3. If Agent Log references `tracking/tasks/*.md` for CLI — read and execute
+4. Re-read when Karel says "zkontroluj" / "podívej se na stav" / "check"
+5. Claim items: `- [ ]` → `- [~] ... řeší CLI od {date}` (prevents Telegram escalation)
+6. After fix: `- [~]` → `- [x] VYŘEŠENO {date} (CLI: what was done)`
+7. Log own actions to Agent Log: `- [date CLI]: what was done`
+8. Unclaimed health items escalate to Karel's Telegram after 15 minutes
+
+Path: `~/Develop/nano-cone/knowledge/tracking/system_health.md`
 
 ## Development
 
@@ -73,8 +174,9 @@ systemctl --user restart nanoclaw
 
 ## Troubleshooting
 
-**WhatsApp not connecting after upgrade:** WhatsApp is now a separate skill, not bundled in core. Run `/add-whatsapp` (or `npx tsx scripts/apply-skill.ts .claude/skills/add-whatsapp && npm run build`) to install it. Existing auth credentials and groups are preserved.
+**WhatsApp not connecting after upgrade:** WhatsApp is now a separate channel fork, not bundled in core. Run `/add-whatsapp` (or `git remote add whatsapp https://github.com/qwibitai/nanoclaw-whatsapp.git && git fetch whatsapp main && (git merge whatsapp/main || { git checkout --theirs package-lock.json && git add package-lock.json && git merge --continue; }) && npm run build`) to install it. Existing auth credentials and groups are preserved.
 
 ## Container Build Cache
 
 The container buildkit caches the build context aggressively. `--no-cache` alone does NOT invalidate COPY steps — the builder's volume retains stale files. To force a truly clean rebuild, prune the builder then re-run `./container/build.sh`.
+

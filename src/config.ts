@@ -41,6 +41,11 @@ export const STORE_DIR = path.resolve(PROJECT_ROOT, 'store');
 export const GROUPS_DIR = path.resolve(PROJECT_ROOT, 'groups');
 export const DATA_DIR = path.resolve(PROJECT_ROOT, 'data');
 
+// Karel-specific: shared knowledge repo across agents
+export const KNOWLEDGE_REPO_PATH =
+  process.env.KNOWLEDGE_REPO_PATH ||
+  path.join(HOME_DIR, 'Develop', 'nano-cone', 'knowledge');
+
 export const CONTAINER_IMAGE =
   process.env.CONTAINER_IMAGE || 'nanoclaw-agent:latest';
 export const CONTAINER_TIMEOUT = parseInt(

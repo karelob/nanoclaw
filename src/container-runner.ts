@@ -2,8 +2,10 @@
  * Container Runner for NanoClaw
  * Spawns agent execution in containers and handles IPC
  */
-import { ChildProcess, spawn } from 'child_process';
+import { ChildProcess, exec, spawn } from 'child_process';
+import crypto from 'crypto';
 import fs from 'fs';
+import os from 'os';
 import path from 'path';
 
 import {
@@ -26,6 +28,7 @@ import {
   stopContainer,
 } from './container-runtime.js';
 import { detectAuthMode } from './credential-proxy.js';
+import { readEnvFile } from './env.js';
 import { validateAdditionalMounts } from './mount-security.js';
 import { RegisteredGroup } from './types.js';
 
@@ -42,6 +45,8 @@ export interface ContainerInput {
   isScheduledTask?: boolean;
   assistantName?: string;
   script?: string;
+  /** @internal retry flag — set automatically on network error retry */
+  _isRetry?: boolean;
 }
 
 export interface ContainerOutput {
@@ -67,7 +72,7 @@ function buildVolumeMounts(
 
   if (isMain) {
     // Main gets the project root read-only. Writable paths the agent needs
-    // (store, group folder, IPC, .claude/) are mounted separately below.
+    // (group folder, IPC, .claude/) are mounted separately below.
     // Read-only prevents the agent from modifying host application code
     // (src/, dist/, package.json, etc.) which would bypass the sandbox
     // entirely on next restart.
@@ -77,17 +82,8 @@ function buildVolumeMounts(
       readonly: true,
     });
 
-    // .env shadowing is handled inside the container entrypoint via mount --bind
-    // (Apple Container only supports directory mounts, not file mounts like /dev/null)
-
-    // Main gets writable access to the store (SQLite DB) so it can
-    // query and write to the database directly.
-    const storeDir = path.join(projectRoot, 'store');
-    mounts.push({
-      hostPath: storeDir,
-      containerPath: '/workspace/project/store',
-      readonly: false,
-    });
+    // .env shadowing is handled inside the container entrypoint via mount --bind.
+    // Apple Container only supports directory mounts, not file mounts like /dev/null.
 
     // Main also gets its group folder as the working directory
     mounts.push({
@@ -95,16 +91,6 @@ function buildVolumeMounts(
       containerPath: '/workspace/group',
       readonly: false,
     });
-
-    // Global memory directory — writable for main so it can update shared context
-    const globalDir = path.join(GROUPS_DIR, 'global');
-    if (fs.existsSync(globalDir)) {
-      mounts.push({
-        hostPath: globalDir,
-        containerPath: '/workspace/global',
-        readonly: false,
-      });
-    }
   } else {
     // Other groups only get their own folder
     mounts.push({
@@ -202,17 +188,8 @@ function buildVolumeMounts(
     group.folder,
     'agent-runner-src',
   );
-  if (fs.existsSync(agentRunnerSrc)) {
-    const srcIndex = path.join(agentRunnerSrc, 'index.ts');
-    const cachedIndex = path.join(groupAgentRunnerDir, 'index.ts');
-    const needsCopy =
-      !fs.existsSync(groupAgentRunnerDir) ||
-      !fs.existsSync(cachedIndex) ||
-      (fs.existsSync(srcIndex) &&
-        fs.statSync(srcIndex).mtimeMs > fs.statSync(cachedIndex).mtimeMs);
-    if (needsCopy) {
-      fs.cpSync(agentRunnerSrc, groupAgentRunnerDir, { recursive: true });
-    }
+  if (!fs.existsSync(groupAgentRunnerDir) && fs.existsSync(agentRunnerSrc)) {
+    fs.cpSync(agentRunnerSrc, groupAgentRunnerDir, { recursive: true });
   }
   mounts.push({
     hostPath: groupAgentRunnerDir,
@@ -260,6 +237,15 @@ function buildContainerArgs(
     args.push('-e', 'CLAUDE_CODE_OAUTH_TOKEN=placeholder');
   }
 
+  // Pass infrastructure URLs so containers can reach Ollama and Whisper directly.
+  // These are NOT secrets — they're just service addresses (e.g. 10.0.10.70).
+  // readEnvFile is used because process.env is kept clean of config values.
+  const infraEnv = readEnvFile(['OLLAMA_HOST', 'WHISPER_LOCAL_URL']);
+  for (const key of ['OLLAMA_HOST', 'WHISPER_LOCAL_URL'] as const) {
+    const val = process.env[key] || infraEnv[key];
+    if (val) args.push('-e', `${key}=${val}`);
+  }
+
   // Runtime-specific args for host gateway resolution
   args.push(...hostGatewayArgs());
 
@@ -293,6 +279,42 @@ function buildContainerArgs(
   return args;
 }
 
+function checkClaudeMdIntegrity(groupFolder: string): boolean {
+  const claudeMdPath = path.join(GROUPS_DIR, groupFolder, 'CLAUDE.md');
+  const hashRefPath = path.join(
+    os.homedir(),
+    '.config',
+    'nanoclaw',
+    `${groupFolder}_claude_md.sha256`,
+  );
+
+  if (!fs.existsSync(claudeMdPath)) return true; // no CLAUDE.md = OK
+  if (!fs.existsSync(hashRefPath)) {
+    logger.warn(
+      { groupFolder },
+      'No CLAUDE.md integrity hash found — skipping check',
+    );
+    return true;
+  }
+
+  const expected = fs.readFileSync(hashRefPath, 'utf8').trim();
+  const actual = crypto
+    .createHash('sha256')
+    .update(fs.readFileSync(claudeMdPath))
+    .digest('hex');
+
+  if (expected !== actual) {
+    logger.error(
+      { groupFolder, expected, actual },
+      'CLAUDE.md integrity check FAILED — hash mismatch! Aborting container run.',
+    );
+    return false;
+  }
+
+  logger.debug({ groupFolder }, 'CLAUDE.md integrity OK');
+  return true;
+}
+
 export async function runContainerAgent(
   group: RegisteredGroup,
   input: ContainerInput,
@@ -300,6 +322,14 @@ export async function runContainerAgent(
   onOutput?: (output: ContainerOutput) => Promise<void>,
 ): Promise<ContainerOutput> {
   const startTime = Date.now();
+
+  if (!checkClaudeMdIntegrity(group.folder)) {
+    return {
+      status: 'error',
+      result: null,
+      error: `CLAUDE.md integrity check failed for group ${group.folder}`,
+    };
+  }
 
   const groupDir = resolveGroupFolderPath(group.folder);
   fs.mkdirSync(groupDir, { recursive: true });
@@ -411,7 +441,12 @@ export async function runContainerAgent(
       const chunk = data.toString();
       const lines = chunk.trim().split('\n');
       for (const line of lines) {
-        if (line) logger.debug({ container: group.folder }, line);
+        if (!line) continue;
+        if (line.includes('[OLLAMA]')) {
+          logger.info({ container: group.folder }, line);
+        } else {
+          logger.debug({ container: group.folder }, line);
+        }
       }
       // Don't reset timeout on stderr — SDK writes debug logs continuously.
       // Timeout only resets on actual output (OUTPUT_MARKER in stdout).
@@ -442,15 +477,10 @@ export async function runContainerAgent(
         { group: group.name, containerName },
         'Container timeout, stopping gracefully',
       );
-      try {
-        stopContainer(containerName);
-      } catch (err) {
-        logger.warn(
-          { group: group.name, containerName, err },
-          'Graceful stop failed, force killing',
-        );
-        container.kill('SIGKILL');
-      }
+      stopContainer(containerName);
+      setTimeout(() => {
+        try { container.kill('SIGKILL'); } catch { /* already exited */ }
+      }, 5000);
     };
 
     let timeout = setTimeout(killOnTimeout, timeoutMs);
@@ -532,20 +562,10 @@ export async function runContainerAgent(
       const isError = code !== 0;
 
       if (isVerbose || isError) {
-        // On error, log input metadata only — not the full prompt.
-        // Full input is only included at verbose level to avoid
-        // persisting user conversation content on every non-zero exit.
-        if (isVerbose) {
-          logLines.push(`=== Input ===`, JSON.stringify(input, null, 2), ``);
-        } else {
-          logLines.push(
-            `=== Input Summary ===`,
-            `Prompt length: ${input.prompt.length} chars`,
-            `Session ID: ${input.sessionId || 'new'}`,
-            ``,
-          );
-        }
         logLines.push(
+          `=== Input ===`,
+          JSON.stringify(input, null, 2),
+          ``,
           `=== Container Args ===`,
           containerArgs.join(' '),
           ``,
@@ -581,6 +601,11 @@ export async function runContainerAgent(
       logger.debug({ logFile, verbose: isVerbose }, 'Container log written');
 
       if (code !== 0) {
+        const isNetworkError =
+          stderr.includes('ENOTFOUND') ||
+          stderr.includes('ECONNREFUSED') ||
+          stderr.includes('EHOSTUNREACH');
+
         logger.error(
           {
             group: group.name,
@@ -589,9 +614,35 @@ export async function runContainerAgent(
             stderr,
             stdout,
             logFile,
+            isNetworkError,
           },
           'Container exited with error',
         );
+
+        // Network errors get one automatic retry (covers transient vmnet startup)
+        if (isNetworkError && !input._isRetry) {
+          logger.warn(
+            { group: group.name },
+            'Network error detected — retrying container in 5s',
+          );
+          setTimeout(() => {
+            runContainerAgent(
+              group,
+              { ...input, _isRetry: true } as ContainerInput,
+              onProcess,
+              onOutput,
+            )
+              .then(resolve)
+              .catch(() =>
+                resolve({
+                  status: 'error',
+                  result: null,
+                  error: `Container retry also failed (network)`,
+                }),
+              );
+          }, 5000);
+          return;
+        }
 
         resolve({
           status: 'error',
@@ -688,7 +739,6 @@ export function writeTasksSnapshot(
     id: string;
     groupFolder: string;
     prompt: string;
-    script?: string | null;
     schedule_type: string;
     schedule_value: string;
     status: string;
@@ -724,7 +774,7 @@ export function writeGroupsSnapshot(
   groupFolder: string,
   isMain: boolean,
   groups: AvailableGroup[],
-  _registeredJids: Set<string>,
+  registeredJids: Set<string>,
 ): void {
   const groupIpcDir = resolveGroupIpcPath(groupFolder);
   fs.mkdirSync(groupIpcDir, { recursive: true });
