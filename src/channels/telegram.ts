@@ -131,9 +131,14 @@ export class TelegramChannel implements Channel {
       const processType = this._shouldProcess(ctx);
       if (processType === 'ignore') return;
       if (processType === 'mluvka_proxy') {
-        // Only process @siska_bot commands from Mluvka
-        if (!ctx.message.text.startsWith('@siska_bot')) return;
-        ctx.message.text = ctx.message.text.replace(/^@\w+\s*/, '');
+        // Accept @siska_bot commands and [proxy:karel] voice transcriptions from Mluvka
+        if (ctx.message.text.startsWith('@siska_bot')) {
+          ctx.message.text = ctx.message.text.replace(/^@\w+\s*/, '');
+        } else if (ctx.message.text.startsWith('[proxy:karel]')) {
+          ctx.message.text = ctx.message.text.replace(/^\[proxy:karel\]\s*/, '');
+        } else {
+          return;
+        }
       }
 
       const chatJid = `tg:${ctx.chat.id}`;
