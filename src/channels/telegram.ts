@@ -135,7 +135,10 @@ export class TelegramChannel implements Channel {
         if (ctx.message.text.startsWith('@siska_bot')) {
           ctx.message.text = ctx.message.text.replace(/^@\w+\s*/, '');
         } else if (ctx.message.text.startsWith('[proxy:karel]')) {
-          ctx.message.text = ctx.message.text.replace(/^\[proxy:karel\]\s*/, '');
+          ctx.message.text = ctx.message.text.replace(
+            /^\[proxy:karel\]\s*/,
+            '',
+          );
         } else {
           return;
         }
