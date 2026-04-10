@@ -642,7 +642,20 @@ async function main(): Promise<void> {
         return;
       }
       const text = formatOutbound(rawText);
-      if (text) await channel.sendMessage(jid, text);
+      if (text) {
+        // Store task output so Šiška sees it in conversation history
+        storeMessage({
+          id: `bot-task-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+          chat_jid: jid,
+          sender: ASSISTANT_NAME,
+          sender_name: ASSISTANT_NAME,
+          content: rawText,
+          timestamp: new Date().toISOString(),
+          is_from_me: false,
+          is_bot_message: true,
+        });
+        await channel.sendMessage(jid, text);
+      }
     },
   });
   startIpcWatcher({
@@ -675,7 +688,9 @@ async function main(): Promise<void> {
     writeGroupsSnapshot: (gf, im, ag, rj) =>
       writeGroupsSnapshot(gf, im, ag, rj),
     onTasksChanged: () => {
-      logger.debug('Tasks changed via IPC, scheduler will pick up on next poll');
+      logger.debug(
+        'Tasks changed via IPC, scheduler will pick up on next poll',
+      );
     },
   });
   queue.setProcessMessagesFn(processGroupMessages);
