@@ -356,8 +356,16 @@ function getRecentErrors(): string[] {
   return errors.slice(-10);
 }
 
-/** Check Burlak health — did it run recently and succeed? */
-function checkBurlakHealth(): { key: string; msg: string } | null {
+/** Check Burlak health — two-tier alerting based on absence + output.
+ *
+ * Tier 1 (5–12 h, or >12 h with no prior output): log only, no Telegram.
+ * Tier 2 (>12 h AND prior run had output): escalate to Telegram.
+ *
+ * Rationale: Burlak may legitimately have nothing to do — a run that
+ * produced no output is expected idle behaviour, not a failure. Only alert
+ * when output was expected but the run is missing.
+ */
+function checkBurlakHealth(): { key: string; msg: string; logOnly?: boolean } | null {
   const statusFile = path.join(HOME, '.config/burlak/last_run.json');
   try {
     const raw = fs.readFileSync(statusFile, 'utf-8');
@@ -365,6 +373,7 @@ function checkBurlakHealth(): { key: string; msg: string } | null {
       ts: string;
       status: 'success' | 'failed';
       exit_code?: number;
+      had_output?: boolean;
     };
     const ageMs = Date.now() - new Date(status.ts).getTime();
     const ageH = ageMs / (1000 * 60 * 60);
@@ -372,14 +381,26 @@ function checkBurlakHealth(): { key: string; msg: string } | null {
     if (status.status === 'failed') {
       return {
         key: 'burlak-failed',
-        msg: `⚠️ Burlak posledn run selhal (exit ${status.exit_code ?? '?'}, ${Math.round(ageH)}h ago)`,
+        msg: `⚠️ Burlak poslední run selhal (exit ${status.exit_code ?? '?'}, ${Math.round(ageH)}h ago)`,
       };
     }
+    if (ageH > 12) {
+      // Only escalate to Telegram if the previous run had output (output was expected)
+      const hadOutput = status.had_output !== false; // default true for backwards compat
+      if (hadOutput) {
+        return {
+          key: 'burlak-stale',
+          msg: `⚠️ Burlak neběžel ${Math.round(ageH)}h (očekáváno každé 4h, předchozí run měl výstup)`,
+        };
+      }
+      // Previous run had no output — log only, don't spam Telegram
+      logger.info({ ageH: Math.round(ageH) }, 'Burlak stale but previous run had no output — log only');
+      return null;
+    }
     if (ageH > 5) {
-      return {
-        key: 'burlak-stale',
-        msg: `⚠️ Burlak neběžel ${Math.round(ageH)}h (očekáváno každé 4h)`,
-      };
+      // Within 5–12 h: log only, no Telegram alert
+      logger.debug({ ageH: Math.round(ageH) }, 'Burlak mildly stale, within log-only window');
+      return null;
     }
     return null;
   } catch {
