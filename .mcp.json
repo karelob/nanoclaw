@@ -7,8 +7,7 @@
       ],
       "env": {
         "CONE_DB_PATH": "/Users/karel/Develop/nano-cone/cone/db/cone.db",
-        "EMBEDDINGS_DB_PATH": "/Users/karel/Develop/nano-cone/cone/db/embeddings.db",
-        "GOOGLE_AI_API_KEY": "${GOOGLE_AI_API_KEY}"
+        "EMBEDDINGS_DB_PATH": "/Users/karel/Develop/nano-cone/cone/db/embeddings.db"
       }
     },
     "fantastical": {

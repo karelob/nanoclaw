@@ -34,5 +34,16 @@ groups/global/*
 
 # Skills system (local per-installation state)
 .nanoclaw/
+.nanoclaw-migrations/
+
+# Upgrade worktrees
+.upgrade-worktree/
+
+# Python cache
+__pycache__/
+*.pyc
+
+# Runtime state (lives in ~/.config/nanoclaw/)
+nanoclaw.db
 
 agents-sdk-docs

@@ -479,7 +479,11 @@ export async function runContainerAgent(
       );
       stopContainer(containerName);
       setTimeout(() => {
-        try { container.kill('SIGKILL'); } catch { /* already exited */ }
+        try {
+          container.kill('SIGKILL');
+        } catch {
+          /* already exited */
+        }
       }, 5000);
     };
 

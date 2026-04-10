@@ -365,7 +365,11 @@ function getRecentErrors(): string[] {
  * produced no output is expected idle behaviour, not a failure. Only alert
  * when output was expected but the run is missing.
  */
-function checkBurlakHealth(): { key: string; msg: string; logOnly?: boolean } | null {
+function checkBurlakHealth(): {
+  key: string;
+  msg: string;
+  logOnly?: boolean;
+} | null {
   const statusFile = path.join(HOME, '.config/burlak/last_run.json');
   try {
     const raw = fs.readFileSync(statusFile, 'utf-8');
@@ -394,12 +398,18 @@ function checkBurlakHealth(): { key: string; msg: string; logOnly?: boolean } | 
         };
       }
       // Previous run had no output — log only, don't spam Telegram
-      logger.info({ ageH: Math.round(ageH) }, 'Burlak stale but previous run had no output — log only');
+      logger.info(
+        { ageH: Math.round(ageH) },
+        'Burlak stale but previous run had no output — log only',
+      );
       return null;
     }
     if (ageH > 5) {
       // Within 5–12 h: log only, no Telegram alert
-      logger.debug({ ageH: Math.round(ageH) }, 'Burlak mildly stale, within log-only window');
+      logger.debug(
+        { ageH: Math.round(ageH) },
+        'Burlak mildly stale, within log-only window',
+      );
       return null;
     }
     return null;
