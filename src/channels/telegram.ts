@@ -129,17 +129,29 @@ export class TelegramChannel implements Channel {
 
       // Filter by sender role
       const processType = this._shouldProcess(ctx);
+      const fromId = ctx.from?.id;
+      const textPreview = ctx.message.text.slice(0, 40);
+      logger.info(
+        { fromId, processType, textPreview, chatId: ctx.chat.id },
+        'Telegram text message received',
+      );
       if (processType === 'ignore') return;
       if (processType === 'mluvka_proxy') {
         // Accept @siska_bot commands and [proxy:karel] voice transcriptions from Mluvka
+        // Case-insensitive match for robustness
+        const textLower = ctx.message.text.toLowerCase();
         if (ctx.message.text.startsWith('@siska_bot')) {
           ctx.message.text = ctx.message.text.replace(/^@\w+\s*/, '');
-        } else if (ctx.message.text.startsWith('[proxy:karel]')) {
+        } else if (textLower.startsWith('[proxy:karel]')) {
           ctx.message.text = ctx.message.text.replace(
-            /^\[proxy:karel\]\s*/,
+            /^\[proxy:karel\]\s*/i,
             '',
           );
         } else {
+          logger.warn(
+            { fromId, textPreview },
+            'Mluvka proxy message discarded — no recognized prefix',
+          );
           return;
         }
       }

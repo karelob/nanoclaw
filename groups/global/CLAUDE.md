@@ -52,6 +52,10 @@ When working as a sub-agent or teammate, only use `send_message` if instructed t
 
 Files you create are saved in `/workspace/group/`. Use this for notes, research, or anything that should persist.
 
+**IMPORTANT — `/workspace/extra/knowledge/`:** Files here are persisted automatically via volume mount. Do NOT run `git commit` or `git add` in this directory. Git commits inside the container fail (uid 501 is not in /etc/passwd) and are not needed — file writes persist directly.
+
+**Silent tasks:** When a task prompt says "TICHÝ úkol" or instructs output only as `<internal>...</internal>`, wrap ALL output in `<internal>` — including errors and status messages. Never let an error escape into the user-visible output of a silent task.
+
 ## System Health — Action Items
 
 `/workspace/extra/knowledge/tracking/system_health.md` is the **single source of truth** for system health. Updated every 5 minutes.
