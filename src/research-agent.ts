@@ -44,6 +44,12 @@ const PROPOSALS_DIR = path.join(
   'agent_proposals',
 );
 
+const RESEARCH_LOG_PATH = path.join(
+  KNOWLEDGE_REPO_PATH,
+  'topics',
+  'research_log.md',
+);
+
 // ── Data fetchers ───────────────────────────────────
 
 function fetchUrl(url: string, timeoutSec = 15): string | null {
@@ -569,95 +575,25 @@ async function sendResearchReport(
   analysis: string,
   sourceCount: number,
   newSourceCount: number,
-  sendTelegram: ((text: string) => Promise<void>) | null,
+  _sendTelegram: ((text: string) => Promise<void>) | null,
 ): Promise<void> {
   const date = new Date().toISOString().slice(0, 10);
 
-  // 1. Telegram — short summary
-  if (sendTelegram) {
-    try {
-      // Extract key sections for a concise message
-      const findings =
-        analysis.match(/##\s*Key Findings[\s\S]*?(?=##|$)/)?.[0] || '';
-      const risks =
-        analysis.match(/##\s*Risks\/Concerns[\s\S]*?(?=##|$)/)?.[0] || '';
-      const newSources =
-        analysis.match(/##\s*Suggested New Sources[\s\S]*?(?=##|$)/)?.[0] || '';
-
-      // Build concise Telegram message
-      let msg = `*🔬 Research Report — ${date}*\n`;
-      msg += `Sources: ${sourceCount} | New sources: ${newSourceCount}\n\n`;
-
-      // Extract bullet points from findings (first 5)
-      const bullets = findings.match(/[-•]\s+.+/g)?.slice(0, 5) || [];
-      if (bullets.length > 0) {
-        msg += `*Findings:*\n${bullets.join('\n')}\n\n`;
-      }
-
-      const riskBullets = risks.match(/[-•]\s+.+/g)?.slice(0, 3) || [];
-      if (riskBullets.length > 0) {
-        msg += `*Risks:*\n${riskBullets.join('\n')}\n\n`;
-      }
-
-      if (newSourceCount > 0) {
-        const srcBullets =
-          newSources.match(/https?:\/\/[^\s)<>"]+/g)?.slice(0, 3) || [];
-        if (srcBullets.length > 0) {
-          msg += `*New sources:*\n${srcBullets.map((u: string) => `• ${u}`).join('\n')}`;
-        }
-      }
-
-      // Trim to Telegram limit
-      if (msg.length > 4000)
-        msg = msg.slice(0, 3950) + '\n\n_(full report in email)_';
-      await sendTelegram(msg);
-    } catch (err) {
-      logger.warn({ err }, 'Research: Telegram report failed');
-    }
-  }
-
-  // 2. Email — full HTML report
+  // Append-only summary log — for Burlak to read, not sent to Karel
   try {
-    // Convert markdown to basic HTML
-    let html = analysis
-      .replace(/^## (.+)$/gm, '<h3>$1</h3>')
-      .replace(/^### (.+)$/gm, '<h4>$1</h4>')
-      .replace(/\*\*(.+?)\*\*/g, '<b>$1</b>')
-      .replace(/^[-•] (.+)$/gm, '<li>$1</li>')
-      .replace(/(<li>.*<\/li>\n?)+/g, '<ul>$&</ul>')
-      .replace(/\n\n/g, '<br><br>')
-      .replace(/\n/g, '<br>');
+    const findings =
+      analysis.match(/##\s*(?:Key Findings|Source Scan)[\s\S]*?(?=##|$)/)?.[0] || '';
+    const bullets = findings.match(/[-•]\s+.+/g)?.slice(0, 8) || [];
 
-    html = `<html><body style="font-family: sans-serif; font-size: 14px; line-height: 1.6;">
-<h2>🔬 Research Report — ${date}</h2>
-<p><i>Sources: ${sourceCount} | Model: Gemini 2.5 Flash</i></p>
-<hr>
-${html}
-</body></html>`;
+    let entry = `\n## ${date}\nSources: ${sourceCount} | New sources: ${newSourceCount}\n`;
+    if (bullets.length > 0) {
+      entry += bullets.join('\n') + '\n';
+    }
 
-    // Use Gmail to send
-    const gmailSend = path.join(
-      process.env.HOME || '/Users/karel',
-      'Develop/nano-cone/cone/scripts',
-    );
-    const sendScript = `
-import sys
-sys.path.insert(0, '${gmailSend}')
-from newsletter_summary import get_gmail_service, send_gmail
-service = get_gmail_service()
-import sys
-body = sys.stdin.read()
-result = send_gmail(service, '🔬 Research Report — ${date}', body)
-print(result)
-`;
-    execFileSync('python3', ['-c', sendScript], {
-      input: html,
-      timeout: 15_000,
-      encoding: 'utf8',
-    });
-    logger.info('Research: email report sent');
+    fs.appendFileSync(RESEARCH_LOG_PATH, entry, 'utf8');
+    logger.info({ path: RESEARCH_LOG_PATH }, 'Research: log entry appended');
   } catch (err) {
-    logger.warn({ err }, 'Research: email report failed');
+    logger.warn({ err }, 'Research: log append failed');
   }
 }
 
