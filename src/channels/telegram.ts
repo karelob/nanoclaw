@@ -52,42 +52,35 @@ export class TelegramChannel implements Channel {
   private opts: TelegramChannelOpts;
   private botToken: string;
   private botId: number | null = null; // Set on connect from botInfo
-  private mluvkaBotId: number; // MLUVKA_BOT_ID env var (0 = disabled)
   private karelTelegramId: number; // KAREL_TELEGRAM_ID env var (0 = not set)
 
   constructor(botToken: string, opts: TelegramChannelOpts) {
     this.botToken = botToken;
     this.opts = opts;
-    const env = readEnvFile(['MLUVKA_BOT_ID', 'KAREL_TELEGRAM_ID']);
-    this.mluvkaBotId =
-      parseInt(process.env.MLUVKA_BOT_ID || env.MLUVKA_BOT_ID || '0') || 0;
+    const env = readEnvFile(['KAREL_TELEGRAM_ID']);
     this.karelTelegramId =
       parseInt(process.env.KAREL_TELEGRAM_ID || env.KAREL_TELEGRAM_ID || '0') ||
       0;
   }
 
   /**
-   * Determine whether a message should be processed and how.
+   * Determine whether a message should be processed.
    *
    * Returns:
-   *   'normal'        — process as a regular Karel message
-   *   'mluvka_proxy'  — message from Mluvka bot (may be proxy voice from Karel)
-   *   'ignore'        — discard silently
+   *   'normal'  — process as Karel's message
+   *   'ignore'  — discard silently
    */
-  private _shouldProcess(ctx: any): 'normal' | 'mluvka_proxy' | 'ignore' {
+  private _shouldProcess(ctx: any): 'normal' | 'ignore' {
     const fromId: number | undefined = ctx.from?.id;
     const isGroup = ctx.chat.type === 'group' || ctx.chat.type === 'supergroup';
 
-    // Always discard own messages (Šiška sees itself in groups via polling)
+    // Always discard own messages
     if (this.botId && fromId === this.botId) return 'ignore';
 
-    // Private chat: always Karel, process normally
+    // Private chat: always Karel
     if (!isGroup) return 'normal';
 
-    // Group with Mluvka configured: check if it's the Mluvka proxy bot
-    if (this.mluvkaBotId && fromId === this.mluvkaBotId) return 'mluvka_proxy';
-
-    // Group with Karel ID configured: only allow messages from Karel
+    // Group: only allow messages from Karel
     if (this.karelTelegramId) {
       return fromId === this.karelTelegramId ? 'normal' : 'ignore';
     }
@@ -136,25 +129,6 @@ export class TelegramChannel implements Channel {
         'Telegram text message received',
       );
       if (processType === 'ignore') return;
-      if (processType === 'mluvka_proxy') {
-        // Accept @siska_bot commands and [proxy:karel] voice transcriptions from Mluvka
-        // Case-insensitive match for robustness
-        const textLower = ctx.message.text.toLowerCase();
-        if (ctx.message.text.startsWith('@siska_bot')) {
-          ctx.message.text = ctx.message.text.replace(/^@\w+\s*/, '');
-        } else if (textLower.startsWith('[proxy:karel]')) {
-          ctx.message.text = ctx.message.text.replace(
-            /^\[proxy:karel\]\s*/i,
-            '',
-          );
-        } else {
-          logger.warn(
-            { fromId, textPreview },
-            'Mluvka proxy message discarded — no recognized prefix',
-          );
-          return;
-        }
-      }
 
       const chatJid = `tg:${ctx.chat.id}`;
       let content = ctx.message.text;
@@ -289,37 +263,21 @@ export class TelegramChannel implements Channel {
     this.bot.on('message:video', (ctx) => storeNonText(ctx, '[Video]'));
 
     // Voice messages: download audio and transcribe via Whisper
-    // Also handles Mluvka proxy voice (caption contains [proxy:karel])
     this.bot.on('message:voice', async (ctx) => {
       const processType = this._shouldProcess(ctx);
       if (processType === 'ignore') return;
-
-      // Mluvka proxy: only accept voice with [proxy:karel] caption
-      const caption = ctx.message.caption || '';
-      if (
-        processType === 'mluvka_proxy' &&
-        !caption.includes('[proxy:karel]')
-      ) {
-        return;
-      }
 
       const chatJid = `tg:${ctx.chat.id}`;
       const group = this.opts.registeredGroups()[chatJid];
       if (!group) return;
 
       const timestamp = new Date(ctx.message.date * 1000).toISOString();
-      // For Mluvka proxy, present as Karel (sender filtering already done above)
       const senderName =
-        processType === 'mluvka_proxy'
-          ? 'Karel'
-          : ctx.from?.first_name ||
-            ctx.from?.username ||
-            ctx.from?.id?.toString() ||
-            'Unknown';
-      const senderId =
-        processType === 'mluvka_proxy'
-          ? this.karelTelegramId.toString() || ctx.from?.id?.toString() || ''
-          : ctx.from?.id?.toString() || '';
+        ctx.from?.first_name ||
+        ctx.from?.username ||
+        ctx.from?.id?.toString() ||
+        'Unknown';
+      const senderId = ctx.from?.id?.toString() || '';
 
       const isGroup =
         ctx.chat.type === 'group' || ctx.chat.type === 'supergroup';
@@ -346,13 +304,6 @@ export class TelegramChannel implements Channel {
         }
       } catch (err) {
         logger.error({ err }, 'Failed to download/transcribe voice message');
-      }
-
-      if (processType === 'mluvka_proxy') {
-        logger.info(
-          { chatJid, transcript: content },
-          'Mluvka proxy voice processed as Karel',
-        );
       }
 
       this.opts.onMessage(chatJid, {
