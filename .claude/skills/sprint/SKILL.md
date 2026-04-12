@@ -54,9 +54,14 @@ Co chceš řešit? (číslo, "all", nebo "review" pro Burlak branches)
 ### 2. Karel vybere
 
 **Pokud "review":**
-- Pro každý Burlak branch: `git log burlak/... --oneline -5` + `git diff main...burlak/...`
+- Pro každou branch NEJDŘÍV ověř relevanci: `git log main..burlak/... --oneline`
+  - 0 commitů = branch je již v main → navrhnout smazat, NEprezentovat jako "k review"
+  - >0 commitů = skutečně unmerged → zobrazit diff a zeptat se
+- Pro skutečně unmerged branch: `git diff main...burlak/...`
 - Ukaž diff, zeptej se: merge / zamítni / uprav
 - Mergenuté: aktualizuj proposals.md → status: implemented, popiš co se stalo
+
+**POZOR:** proposals.md je tracking soubor, může být zastaralý. Vždy důvěřuj `git log` více než statusu v proposals.
 
 **Pokud číslo nebo "all":**
 - Implementuj vybrané proposals
