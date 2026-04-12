@@ -582,7 +582,9 @@ async function sendResearchReport(
   // Append-only summary log — for Burlak to read, not sent to Karel
   try {
     const findings =
-      analysis.match(/##\s*(?:Key Findings|Source Scan)[\s\S]*?(?=##|$)/)?.[0] || '';
+      analysis.match(
+        /##\s*(?:Key Findings|Source Scan)[\s\S]*?(?=##|$)/,
+      )?.[0] || '';
     const bullets = findings.match(/[-•]\s+.+/g)?.slice(0, 8) || [];
 
     let entry = `\n## ${date}\nSources: ${sourceCount} | New sources: ${newSourceCount}\n`;
