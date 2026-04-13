@@ -215,6 +215,7 @@ async function processGroupMessages(chatJid: string): Promise<boolean> {
   await channel.setTyping?.(chatJid, true);
   let hadError = false;
   let outputSentToUser = false;
+  const sentTexts = new Set<string>();
 
   const output = await runAgent(group, prompt, chatJid, async (result) => {
     // Streaming output callback — called for each agent result
@@ -227,6 +228,17 @@ async function processGroupMessages(chatJid: string): Promise<boolean> {
       const text = raw.replace(/<internal>[\s\S]*?<\/internal>/g, '').trim();
       logger.info({ group: group.name }, `Agent output: ${raw.slice(0, 200)}`);
       if (text) {
+        // Deduplicate: skip sending if we already sent this exact text in this run.
+        // Prevents spam loops when Claude Code CLI retries and emits the same error
+        // message (e.g. "Credit balance is too low") multiple times as streaming results.
+        if (sentTexts.has(text)) {
+          logger.warn(
+            { group: group.name },
+            `Duplicate agent output suppressed: ${text.slice(0, 100)}`,
+          );
+          return;
+        }
+        sentTexts.add(text);
         await channel.sendMessage(chatJid, text);
         outputSentToUser = true;
         // Store agent response for conversation history
