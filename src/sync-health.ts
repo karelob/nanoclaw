@@ -39,7 +39,7 @@ export const SYNC_JOBS: SyncJob[] = [
     name: 'Calendar sync',
     logFile: 'calendar_sync.log',
     launchdLabel: 'com.cone.calendar-sync',
-    maxAgeHours: 0.5,
+    maxAgeHours: 1.0,
     successPattern: /calendar_sync (Google|iCloud|) ?OK/,
     errorPattern: /calendar_sync FAILED/,
   },

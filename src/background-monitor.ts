@@ -148,11 +148,14 @@ interface MetricsSnapshot {
 
 // Ollama must be up N consecutive checks before we trust it enough to alert on failures
 const OLLAMA_STABLE_THRESHOLD = 12; // 12 × 5min = 1 hour of consecutive OK
+// Ollama must be down N consecutive checks before we alert (avoids flapping false alarms)
+const OLLAMA_DOWN_THRESHOLD = 3; // 3 × 5min = 15 min of consecutive DOWN
 
 const state: MonitorState & {
   lastResearch: number;
   moltbookOk: boolean | undefined;
   ollamaConsecutiveOk: number;
+  ollamaConsecutiveDown: number;
   ollamaAlertEnabled: boolean;
   alertLog: AlertLogEntry[];
   actionItems: ActionItem[];
@@ -167,6 +170,7 @@ const state: MonitorState & {
   lastResearch: 0,
   moltbookOk: undefined, // unknown until first run
   ollamaConsecutiveOk: 0,
+  ollamaConsecutiveDown: 0,
   ollamaAlertEnabled: false,
   alertLog: [],
   actionItems: [],
@@ -319,7 +323,7 @@ function getRecentErrors(): string[] {
       const tail = buf.toString('utf8');
 
       for (const line of tail.split('\n')) {
-        if (pattern.test(line) && line.includes('2026-03-')) {
+        if (pattern.test(line)) {
           const dateMatch = line.match(/\d{4}-\d{2}-\d{2} \d{2}:\d{2}/);
           if (dateMatch) {
             const errorAge = Date.now() - new Date(dateMatch[0]).getTime();
@@ -545,8 +549,11 @@ function generateAlerts(m: MetricsSnapshot): { key: string; msg: string }[] {
     });
   }
 
-  // Ollama: track consecutive OK checks, only alert after stable period
+  // Ollama: track consecutive OK/DOWN checks.
+  // Only enable alerts after 1h of stability (avoids false alarms at startup).
+  // Only fire alert after 3 consecutive DOWN checks (~15 min) to avoid flapping.
   if (m.ollamaUp) {
+    state.ollamaConsecutiveDown = 0;
     state.ollamaConsecutiveOk++;
     if (
       !state.ollamaAlertEnabled &&
@@ -560,8 +567,15 @@ function generateAlerts(m: MetricsSnapshot): { key: string; msg: string }[] {
     }
   } else {
     state.ollamaConsecutiveOk = 0;
-    if (state.ollamaAlertEnabled) {
-      alerts.push({ key: 'ollama', msg: '⚠️ Ollama nedostupný (10.0.10.70)' });
+    state.ollamaConsecutiveDown++;
+    if (
+      state.ollamaAlertEnabled &&
+      state.ollamaConsecutiveDown >= OLLAMA_DOWN_THRESHOLD
+    ) {
+      alerts.push({
+        key: 'ollama',
+        msg: `⚠️ Ollama nedostupný (10.0.10.70) — ${state.ollamaConsecutiveDown * 5} min`,
+      });
     }
   }
 

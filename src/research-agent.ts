@@ -565,13 +565,20 @@ function fetchGoogleSearch(query: string): string | null {
     `https://r.jina.ai/https://www.google.com/search?q=${encoded}&num=5`,
     20,
   );
-  if (googleResult && googleResult.length >= 200 && !isSearchBlocked(googleResult)) {
+  if (
+    googleResult &&
+    googleResult.length >= 200 &&
+    !isSearchBlocked(googleResult)
+  ) {
     logger.info({ query }, 'Research: Google search completed');
     return googleResult.slice(0, 5000);
   }
 
   // Attempt 2: DuckDuckGo via Jina reader (free fallback, no API key)
-  logger.warn({ query }, 'Research: Google blocked — falling back to DuckDuckGo');
+  logger.warn(
+    { query },
+    'Research: Google blocked — falling back to DuckDuckGo',
+  );
   const ddgResult = fetchUrl(
     `https://r.jina.ai/https://duckduckgo.com/?q=${encoded}&ia=web`,
     20,
