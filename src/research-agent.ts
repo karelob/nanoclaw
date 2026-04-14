@@ -543,16 +543,46 @@ function markReadingListProcessed(urls: string[]): void {
   }
 }
 
-/** Search via Jina reader on Google results page */
+/** Detect if a Jina-rendered page was blocked (Google DDoS protection, CAPTCHA) */
+function isSearchBlocked(result: string): boolean {
+  const lower = result.toLowerCase();
+  return (
+    lower.includes('unusual traffic') ||
+    lower.includes('captcha') ||
+    lower.includes('our systems have detected') ||
+    lower.includes('verify you are human') ||
+    lower.includes('access denied') ||
+    lower.includes('too many requests')
+  );
+}
+
+/** Search via Jina reader — tries Google first, falls back to DuckDuckGo if blocked */
 function fetchGoogleSearch(query: string): string | null {
   const encoded = encodeURIComponent(query);
-  // Use Jina reader to render Google search results page
-  const result = fetchUrl(
+
+  // Attempt 1: Google via Jina reader
+  const googleResult = fetchUrl(
     `https://r.jina.ai/https://www.google.com/search?q=${encoded}&num=5`,
     20,
   );
-  if (!result || result.length < 200) return null;
-  return result.slice(0, 5000);
+  if (googleResult && googleResult.length >= 200 && !isSearchBlocked(googleResult)) {
+    logger.info({ query }, 'Research: Google search completed');
+    return googleResult.slice(0, 5000);
+  }
+
+  // Attempt 2: DuckDuckGo via Jina reader (free fallback, no API key)
+  logger.warn({ query }, 'Research: Google blocked — falling back to DuckDuckGo');
+  const ddgResult = fetchUrl(
+    `https://r.jina.ai/https://duckduckgo.com/?q=${encoded}&ia=web`,
+    20,
+  );
+  if (ddgResult && ddgResult.length >= 200 && !isSearchBlocked(ddgResult)) {
+    logger.info({ query }, 'Research: DuckDuckGo fallback search completed');
+    return ddgResult.slice(0, 5000);
+  }
+
+  logger.warn({ query }, 'Research: both Google and DuckDuckGo search failed');
+  return null;
 }
 
 function addSourceCandidate(url: string, reason: string): void {
@@ -649,7 +679,6 @@ export async function runResearchAgent(
       const results = fetchGoogleSearch(query);
       if (results) {
         sourceSummaries.push(`[search] "${query}":\n${results}`);
-        logger.info({ query }, 'Research: Google search completed');
       }
     } catch {
       /* skip */
