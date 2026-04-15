@@ -270,6 +270,8 @@ def save_to_db(commitments: list[dict], dry_run: bool = False) -> int:
             print(f"  [CALENDAR SKIP] {c.get('description','')[:80]}")
             continue
 
+        desc = re.sub(r'\*\*([^*]+)\*\*', r'\1', c.get("description", ""))
+        desc = re.sub(r'\*([^*]+)\*', r'\1', desc).strip()
         conn.execute(
             """
             INSERT INTO commitments
@@ -279,7 +281,7 @@ def save_to_db(commitments: list[dict], dry_run: bool = False) -> int:
             (
                 c.get("thread_subject", "")[:300],
                 c.get("direction", "sent"),
-                c.get("description", "")[:500],
+                desc[:500],
                 c.get("counterparty", "")[:200],
                 c.get("due_date"),
                 SOURCE_RUN,
