@@ -24,6 +24,11 @@ CONE_DB = "/workspace/local-db/cone.db"
 KNOWLEDGE_DIR = "/workspace/extra/knowledge"
 OPEN_ITEMS = f"{KNOWLEDGE_DIR}/tracking/open_items.md"
 
+# Meeting URLs → commitment je pravděpodobně kalendářová událost
+MEETING_URL_RE = re.compile(
+    r"meet\.google\.com|teams\.microsoft\.com|zoom\.us|webex\.com|whereby\.com|gotomeeting\.com"
+)
+
 # Evolution = citlivá data, NESMÍ do cloudu (Ollama = lokální, OK)
 SKIP_ACCOUNTS = {"karel.obluk@evolutionequity.com"}
 
@@ -175,6 +180,62 @@ def extract_with_claude(threads: list[list[dict]], api_key: str = "", dry_run: b
     return all_commitments
 
 
+_CAL_STOP = {
+    "bude", "nebo", "jako", "jsou", "jsme", "bylo", "byla", "bych", "jeho",
+    "send", "from", "that", "this", "with", "please", "will", "have",
+    "karel", "obluk", "email", "call", "meeting", "schůzka", "setkání",
+}
+
+
+def has_matching_calendar_event(conn, description: str, due_date) -> bool:
+    """Vrátí True pokud commitment pravděpodobně odpovídá kalendářové události.
+
+    Kritéria:
+    1. Description obsahuje video/meeting URL → skoro jistě event
+    2. OR due_date odpovídá eventu s překrývajícími klíčovými slovy
+    """
+    desc_lower = (description or "").lower()
+    has_url = bool(MEETING_URL_RE.search(desc_lower))
+
+    if not due_date and not has_url:
+        return False
+
+    if due_date:
+        date_from = date_to = due_date
+    else:
+        today = datetime.now().strftime("%Y-%m-%d")
+        date_from = today
+        date_to = (datetime.now() + timedelta(days=30)).strftime("%Y-%m-%d")
+
+    try:
+        rows = conn.execute("""
+            SELECT summary FROM events
+            WHERE DATE(start_dt) BETWEEN DATE(?, '-1 day') AND DATE(?, '+1 day')
+              AND (status IS NULL OR LOWER(status) != 'cancelled')
+            LIMIT 30
+        """, (date_from, date_to)).fetchall()
+    except Exception:
+        return False
+
+    if not rows:
+        return False
+
+    # Meeting URL + event na stejný den → skip
+    if has_url:
+        return True
+
+    # Bez URL: jen pokud se klíčová slova překrývají
+    desc_words = {w for w in re.findall(r"[a-záčďéěíňóřšťúůýž]{4,}", desc_lower)
+                  if w not in _CAL_STOP}
+    for (summary,) in rows:
+        ev_words = {w for w in re.findall(r"[a-záčďéěíňóřšťúůýž]{4,}", (summary or "").lower())
+                    if w not in _CAL_STOP}
+        if desc_words & ev_words:
+            return True
+
+    return False
+
+
 def save_to_db(commitments: list[dict], dry_run: bool = False) -> int:
     """Save commitments to cone.db, skip duplicates."""
     if dry_run:
@@ -202,6 +263,11 @@ def save_to_db(commitments: list[dict], dry_run: bool = False) -> int:
         ).fetchone()
 
         if existing:
+            continue
+
+        # Přeskočit commitments, které jsou ve skutečnosti kalendářové události
+        if has_matching_calendar_event(conn, c.get("description", ""), c.get("due_date")):
+            print(f"  [CALENDAR SKIP] {c.get('description','')[:80]}")
             continue
 
         conn.execute(
