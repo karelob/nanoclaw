@@ -971,14 +971,16 @@ export function startBackgroundMonitor(
       writeHealthReport(metrics);
 
       // Tier 2: Ollama analysis (every hour)
+      // lastTier2 is only updated when Tier 2 actually runs — if Ollama is down,
+      // we retry on every Tier 1 cycle (every 5 min) until it recovers.
       const now = Date.now();
       if (now - state.lastTier2 >= TIER2_INTERVAL) {
-        state.lastTier2 = now;
         const latestMetrics = state.metrics[state.metrics.length - 1];
 
         if (!latestMetrics?.ollamaUp) {
-          logger.info('Skipping Tier 2 — Ollama not available');
+          logger.info('Skipping Tier 2 — Ollama not available (will retry in 5 min)');
         } else {
+          state.lastTier2 = now;
           logger.info('Running Tier 2 Ollama analysis');
         }
 
