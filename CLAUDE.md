@@ -32,6 +32,8 @@ Single Node.js process with skill-based channel system. Channels (WhatsApp, Tele
 | `/sprint` | Koordinovaný improvement sprint — review Burlak branches, implementace proposals |
 | `/qodo-pr-resolver` | Fetch and fix Qodo PR review issues interactively or in batch |
 | `/get-qodo-rules` | Load org- and repo-level coding rules from Qodo before code tasks |
+| `/company` | Profil firmy z cone.db + Affinity — fakta, komunikace, závazky, dokumenty |
+| `/contact` | Profil osoby z cone.db — emaily, kalendář, závazky, dokumenty |
 
 ## ZÁSADNÍ PRAVIDLA
 

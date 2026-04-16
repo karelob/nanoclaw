@@ -9,6 +9,7 @@ import os from 'os';
 import path from 'path';
 
 import {
+  CONE_MCP_PORT,
   CONTAINER_IMAGE,
   CONTAINER_MAX_OUTPUT_SIZE,
   CONTAINER_TIMEOUT,
@@ -240,10 +241,28 @@ function buildContainerArgs(
   // Pass infrastructure URLs so containers can reach Ollama and Whisper directly.
   // These are NOT secrets — they're just service addresses (e.g. 10.0.10.70).
   // readEnvFile is used because process.env is kept clean of config values.
-  const infraEnv = readEnvFile(['OLLAMA_HOST', 'WHISPER_LOCAL_URL']);
+  const infraEnv = readEnvFile([
+    'OLLAMA_HOST',
+    'WHISPER_LOCAL_URL',
+    'CONE_MCP_PORT',
+    'CONE_MCP_SECRET',
+  ]);
   for (const key of ['OLLAMA_HOST', 'WHISPER_LOCAL_URL'] as const) {
     const val = process.env[key] || infraEnv[key];
     if (val) args.push('-e', `${key}=${val}`);
+  }
+
+  // Pass cone-db MCP URL + secret so containers can connect to the host HTTP/SSE service.
+  // Only set when CONE_MCP_PORT is configured (service must be running).
+  const coneMcpPort =
+    CONE_MCP_PORT || parseInt(infraEnv['CONE_MCP_PORT'] || '0', 10);
+  const coneMcpSecret = infraEnv['CONE_MCP_SECRET'];
+  if (coneMcpPort) {
+    args.push(
+      '-e',
+      `CONE_MCP_URL=http://${CONTAINER_HOST_GATEWAY}:${coneMcpPort}/sse`,
+    );
+    if (coneMcpSecret) args.push('-e', `CONE_MCP_SECRET=${coneMcpSecret}`);
   }
 
   // Runtime-specific args for host gateway resolution

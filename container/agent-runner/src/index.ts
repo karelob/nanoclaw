@@ -469,6 +469,7 @@ async function runQuery(
         'Skill',
         'NotebookEdit',
         'mcp__nanoclaw__*',
+        ...(process.env.CONE_MCP_URL ? ['mcp__cone-db__*'] : []),
       ],
       env: sdkEnv,
       permissionMode: 'bypassPermissions',
@@ -484,6 +485,17 @@ async function runQuery(
             NANOCLAW_IS_MAIN: containerInput.isMain ? '1' : '0',
           },
         },
+        ...(process.env.CONE_MCP_URL
+          ? {
+              'cone-db': {
+                type: 'sse' as const,
+                url: process.env.CONE_MCP_URL,
+                ...(process.env.CONE_MCP_SECRET
+                  ? { headers: { Authorization: `Bearer ${process.env.CONE_MCP_SECRET}` } }
+                  : {}),
+              },
+            }
+          : {}),
       },
       hooks: {
         PreCompact: [

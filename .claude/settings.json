@@ -1,6 +1,7 @@
 {
   "permissions": {
     "allow": [
+      "Read(/Users/karel/Develop/nano-cone/**)",
       "Read(/Users/karel/Develop/nano-cone/burlak/*)",
       "Edit(/Users/karel/Develop/nano-cone/burlak/*)",
       "Write(/Users/karel/Develop/nano-cone/burlak/*)"

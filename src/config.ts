@@ -60,6 +60,8 @@ export const CREDENTIAL_PROXY_PORT = parseInt(
   process.env.CREDENTIAL_PROXY_PORT || '3001',
   10,
 );
+// Port where cone-mcp HTTP/SSE service listens (set in LaunchAgent, read from .env by container-runner)
+export const CONE_MCP_PORT = parseInt(process.env.CONE_MCP_PORT || '0', 10);
 export const ONECLI_URL =
   process.env.ONECLI_URL || envConfig.ONECLI_URL || 'http://localhost:10254';
 export const MAX_MESSAGES_PER_PROMPT = Math.max(
