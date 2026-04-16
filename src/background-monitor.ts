@@ -978,7 +978,9 @@ export function startBackgroundMonitor(
         const latestMetrics = state.metrics[state.metrics.length - 1];
 
         if (!latestMetrics?.ollamaUp) {
-          logger.info('Skipping Tier 2 — Ollama not available (will retry in 5 min)');
+          logger.info(
+            'Skipping Tier 2 — Ollama not available (will retry in 5 min)',
+          );
         } else {
           state.lastTier2 = now;
           logger.info('Running Tier 2 Ollama analysis');

@@ -11,15 +11,15 @@ Karel řekne "sprint", "/sprint", nebo "pojďme vylepšit systém".
 
 **Vždy spusť tyto příkazy a zobraz výsledky:**
 ```bash
-# Ollama
-curl -s --max-time 5 http://10.0.10.70:11434/api/tags | python3 -c "import sys,json; d=json.load(sys.stdin); print('Ollama UP:', [m['name'] for m in d['models']])" 2>/dev/null || echo "Ollama DOWN"
-
-# cone-db MCP
-ps aux | grep "cone-mcp/dist/index.js" | grep -v grep | awk '{print "cone-db MCP UP, PID=" $2}' || echo "cone-db MCP DOWN"
+# Ollama — zkontroluj OLLAMA_HOST z cone config
+OLLAMA_HOST=$(grep OLLAMA_HOST ~/Develop/nano-cone/cone/config/.env 2>/dev/null | cut -d= -f2)
+curl -s --max-time 5 "${OLLAMA_HOST}/api/tags" | python3 -c "import sys,json; d=json.load(sys.stdin); print('Ollama UP:', [m['name'] for m in d['models']])" 2>/dev/null || echo "Ollama DOWN (${OLLAMA_HOST})"
 
 # NanoClaw
 ps aux | grep "nanoclaw/dist/index.js" | grep -v grep | awk '{print "NanoClaw UP, PID=" $2}' || echo "NanoClaw DOWN"
 ```
+
+> **cone-db MCP:** je stdio server (spouštěn Claude Code na vyžádání, žádný persistent proces) — stav nelze ověřit přes `ps aux`.
 
 Tracking soubory (system_health.md, agent log) mohou být zastaralé — live výsledky mají vždy přednost.
 
