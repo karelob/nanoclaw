@@ -288,9 +288,9 @@ async function processGroupMessages(chatJid: string): Promise<boolean> {
     // advance cursor and notify the user instead of looping forever.
     const isPermanentError =
       lastAgentError &&
-      (lastAgentError.includes("hit your limit") ||
-        lastAgentError.includes("Credit balance") ||
-        lastAgentError.includes("billing"));
+      (lastAgentError.includes('hit your limit') ||
+        lastAgentError.includes('Credit balance') ||
+        lastAgentError.includes('billing'));
     if (isPermanentError) {
       logger.warn(
         { group: group.name, error: lastAgentError },

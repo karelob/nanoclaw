@@ -50,3 +50,9 @@ __pycache__/
 nanoclaw.db
 
 agents-sdk-docs
+
+# Stale directories from wrong relative paths
+knowledge/
+
+# Lock files
+.claude/scheduled_tasks.lock
