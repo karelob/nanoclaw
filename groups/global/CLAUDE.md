@@ -58,14 +58,30 @@ Files you create are saved in `/workspace/group/`. Use this for notes, research,
 
 ## System Health — Action Items
 
-`/workspace/extra/knowledge/tracking/system_health.md` is the **single source of truth** for system health. Updated every 5 minutes.
+`/workspace/extra/knowledge/tracking/system_health.md` is the **single source of truth** for system health. Updated every 5 minutes by background-monitor. **Do NOT edit it directly** — background-monitor overwrites it every 5 min.
 
 At the start of every run, check "Action Items" for your assignee (`@agent`, `@task:{name}`).
-1. Claim first: `- [ ]` → `- [~] ... řeší {your_name} od {date}` (prevents Telegram escalation)
-2. Process: check logs, diagnose, fix or inform Karel
-3. Resolve: `- [~]` → `- [x] VYŘEŠENO {date} ({your_name}: what was done)`
 
-Unclaimed items escalate to Karel's Telegram after 15 minutes — claim promptly.
+**To claim or resolve — write to action_claims.json** (background-monitor reads it on next cycle):
+```bash
+# Claim an item (stops 2-hour Telegram escalation timer):
+echo '[{"key":"backup-nas","action":"claim","by":"agent"}]' \
+  > /workspace/extra/knowledge/tracking/action_claims.json
+
+# Resolve after fixing:
+echo '[{"key":"backup-nas","action":"resolve","by":"agent","note":"re-ran backup script, OK"}]' \
+  > /workspace/extra/knowledge/tracking/action_claims.json
+```
+
+Alert keys (match what you see in system_health.md): `sync`, `email-freshness`, `disk`, `backup-nas`, `backup-nas-warn`, `backup-b2`, `backup-b2-warn`, `ollama`, `memory`
+
+Workflow:
+1. Read system_health.md → find `@agent` open items
+2. Claim via action_claims.json immediately
+3. Diagnose (check logs, run test)
+4. Resolve via action_claims.json, OR create `@cli` task: `tracking/tasks/cli-{key}-YYYY-MM-DD.md`
+
+Unclaimed items escalate to Karel's Telegram after **2 hours** — claim promptly.
 
 ## Agent Log — inter-agent communication
 

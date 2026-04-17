@@ -118,15 +118,14 @@ This is the **primary continuity mechanism** across compactions. It survives con
   - Old decisions → `learnings/decisions.md`
   - Old facts → appropriate knowledge/ file
 
-### Post-Compaction Recovery (AUTOMATIC via hooks)
-After compaction, hooks automatically inject:
-1. `.claude/context-essentials.md` — rules, identity, paths
+### Post-Compaction Recovery
+After compaction, manually re-read:
+1. `.claude/context-essentials.md` — condensed rules, identity, critical paths
 2. `knowledge/active_session.md` — current work context
 3. Last 25 lines of `situation.md` — recent agent comms
 4. Pending `@cli` items from `system_health.md`
 
-**You do NOT need to manually re-read these files after compaction.**
-**You DO need to keep active_session.md current so the hook has good data to inject.**
+**You DO need to keep active_session.md current so recovery is fast.**
 
 ### Periodic Self-Check
 Every ~10 interactions, verify:
@@ -146,10 +145,16 @@ Every ~10 interactions, verify:
 2. Read `situation.md` Agent Log — check for `@cli` tasks from other agents
 3. If Agent Log references `tracking/tasks/*.md` for CLI — read and execute
 4. Re-read when Karel says "zkontroluj" / "podívej se na stav" / "check"
-5. Claim items: `- [ ]` → `- [~] ... řeší CLI od {date}` (prevents Telegram escalation)
-6. After fix: `- [~]` → `- [x] VYŘEŠENO {date} (CLI: what was done)`
-7. Log own actions to Agent Log: `- [date CLI]: what was done`
-8. Unclaimed health items escalate to Karel's Telegram after 15 minutes
+5. Claim items via `action_claims.json` (direct edits to system_health.md are overwritten every 5 min):
+   ```bash
+   echo '[{"key":"ollama","action":"claim","by":"CLI"}]' > ~/Develop/nano-cone/knowledge/tracking/action_claims.json
+   ```
+6. After fix, resolve via action_claims.json:
+   ```bash
+   echo '[{"key":"ollama","action":"resolve","by":"CLI","note":"restarted Ollama service"}]' > ~/Develop/nano-cone/knowledge/tracking/action_claims.json
+   ```
+7. Log own actions to Agent Log in `situation.md`: `- [date CLI]: what was done`
+8. Unclaimed health items escalate to Karel's Telegram after **2 hours**
 
 Path: `~/Develop/nano-cone/knowledge/tracking/system_health.md`
 
