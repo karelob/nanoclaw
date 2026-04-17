@@ -275,7 +275,10 @@ function checkBackupAge(): {
 }
 
 const SYSTEM_PULSE_PATH = path.join(HOME, '.config/nanoclaw/system_pulse.json');
-const MONITOR_STATE_PATH = path.join(HOME, '.config/nanoclaw/monitor_state.json');
+const MONITOR_STATE_PATH = path.join(
+  HOME,
+  '.config/nanoclaw/monitor_state.json',
+);
 
 interface SystemPulseCheck {
   ok: boolean;
@@ -313,7 +316,14 @@ function checkOllama(): boolean {
   try {
     const result = spawnSync(
       '/usr/bin/curl',
-      ['-s', '--connect-timeout', '5', '--max-time', '8', `${OLLAMA_URL}/api/tags`],
+      [
+        '-s',
+        '--connect-timeout',
+        '5',
+        '--max-time',
+        '8',
+        `${OLLAMA_URL}/api/tags`,
+      ],
       { timeout: 10000 },
     );
     return result.status === 0 && result.stdout.length > 0;
@@ -341,7 +351,9 @@ function saveMonitorState(): void {
     };
     fs.mkdirSync(path.dirname(MONITOR_STATE_PATH), { recursive: true });
     fs.writeFileSync(MONITOR_STATE_PATH, JSON.stringify(s, null, 2));
-  } catch { /* non-critical */ }
+  } catch {
+    /* non-critical */
+  }
 }
 
 function loadMonitorState(): void {
@@ -357,10 +369,16 @@ function loadMonitorState(): void {
     state.ollamaConsecutiveDown = s.ollamaConsecutiveDown;
     state.ollamaAlertEnabled = s.ollamaAlertEnabled;
     logger.info(
-      { alertEnabled: s.ollamaAlertEnabled, ok: s.ollamaConsecutiveOk, down: s.ollamaConsecutiveDown },
+      {
+        alertEnabled: s.ollamaAlertEnabled,
+        ok: s.ollamaConsecutiveOk,
+        down: s.ollamaConsecutiveDown,
+      },
       'Restored monitor state',
     );
-  } catch { /* first run or missing file — start fresh */ }
+  } catch {
+    /* first run or missing file — start fresh */
+  }
 }
 
 function checkProcessHealth(): number {
