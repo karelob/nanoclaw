@@ -20,7 +20,7 @@ Single Node.js process with skill-based channel system. Channels (WhatsApp, Tele
 | `src/db.ts` | SQLite operations |
 | `src/background-monitor.ts` | Tier 1 health checks (5 min) + Tier 2 Ollama analysis (1 hr); reads `~/.config/nanoclaw/system_pulse.json` |
 | `groups/{name}/CLAUDE.md` | Per-group memory (isolated) |
-| `container/skills/agent-browser.md` | Browser automation tool (available to all agents via Bash) |
+| `container/skills/agent-browser/SKILL.md` | Browser automation tool (available to all agents via Bash) |
 | `docs/health-monitor.md` | Health monitoring integration — architecture, paths, troubleshooting |
 
 ## Skills
@@ -102,7 +102,7 @@ shasum -a 256 ~/Develop/nano-cone/nanoclaw/CLAUDE.md | cut -d' ' -f1 > ~/.config
 ## Memory Discipline — Active Session Management
 
 ### File: `knowledge/active_session.md`
-This is the **primary continuity mechanism** across compactions. It survives context loss because hooks reload it automatically.
+This is the **primary continuity mechanism** across compactions. Keep it updated so post-compaction recovery is fast — it must be re-read manually after compaction (no hooks configured).
 
 ### When to Update active_session.md
 1. **After completing any task** — add results to Key Facts, update Open Threads

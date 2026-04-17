@@ -280,7 +280,11 @@ nanoclaw/
 │   │       ├── index.ts           # Entry point (query loop, IPC polling, session resume)
 │   │       └── ipc-mcp-stdio.ts   # Stdio-based MCP server for host communication
 │   └── skills/
-│       └── agent-browser.md       # Browser automation skill
+│       ├── agent-browser/SKILL.md  # Browser automation skill
+│       ├── company/SKILL.md        # /company - Company profile
+│       ├── contact/SKILL.md        # /contact - Person profile
+│       ├── finance/SKILL.md        # /finance - Financial data
+│       └── ...                     # Other skills (prep-trip, pdf-reader, etc.)
 │
 ├── dist/                          # Compiled JavaScript (gitignored)
 │
