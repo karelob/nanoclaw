@@ -214,6 +214,7 @@ async function processGroupMessages(chatJid: string): Promise<boolean> {
 
   await channel.setTyping?.(chatJid, true);
   let hadError = false;
+  let lastAgentError: string | undefined;
   let outputSentToUser = false;
   const sentTexts = new Set<string>();
 
@@ -263,6 +264,7 @@ async function processGroupMessages(chatJid: string): Promise<boolean> {
 
     if (result.status === 'error') {
       hadError = true;
+      if (result.error) lastAgentError = result.error;
     }
   });
 
@@ -280,6 +282,21 @@ async function processGroupMessages(chatJid: string): Promise<boolean> {
         { group: group.name },
         'Agent error after output was sent, skipping cursor rollback to prevent duplicates',
       );
+      return true;
+    }
+    // Permanent errors (usage limits, billing) should not be retried —
+    // advance cursor and notify the user instead of looping forever.
+    const isPermanentError =
+      lastAgentError &&
+      (lastAgentError.includes("hit your limit") ||
+        lastAgentError.includes("Credit balance") ||
+        lastAgentError.includes("billing"));
+    if (isPermanentError) {
+      logger.warn(
+        { group: group.name, error: lastAgentError },
+        'Permanent agent error, advancing cursor and notifying user',
+      );
+      await channel.sendMessage(chatJid, `⚠️ ${lastAgentError}`);
       return true;
     }
     // Roll back cursor so retries can re-process these messages
