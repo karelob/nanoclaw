@@ -274,28 +274,93 @@ function checkBackupAge(): {
   return result;
 }
 
-// Ollama check — runs curl synchronously via spawnSync.
-// Previously used a file-based async workaround (background & bash job) which was
-// unreliable: the background process got killed when execFileSync's parent bash exited,
-// leaving a stale ok:false result that never updated.
+const SYSTEM_PULSE_PATH = path.join(HOME, '.config/nanoclaw/system_pulse.json');
+const MONITOR_STATE_PATH = path.join(HOME, '.config/nanoclaw/monitor_state.json');
+
+interface SystemPulseCheck {
+  ok: boolean;
+  latency_ms?: number;
+  age_h?: number;
+  error?: string;
+}
+interface SystemPulse {
+  checked_at: string;
+  checks: Record<string, SystemPulseCheck>;
+}
+
+// Read the JSON status file written by health-monitor (launchd every 5 min).
+// Returns null if the file is missing or stale (>12 min) — caller falls back to direct curl.
+function readSystemPulse(): SystemPulse | null {
+  try {
+    const raw = fs.readFileSync(SYSTEM_PULSE_PATH, 'utf-8');
+    const pulse = JSON.parse(raw) as SystemPulse;
+    const ageMs = Date.now() - new Date(pulse.checked_at).getTime();
+    if (ageMs > 12 * 60 * 1000) return null; // stale
+    return pulse;
+  } catch {
+    return null;
+  }
+}
+
+// Read Ollama status from health-monitor pulse file.
+// Falls back to direct curl if pulse file is unavailable (health-monitor not running).
 function checkOllama(): boolean {
+  const pulse = readSystemPulse();
+  if (pulse) {
+    return pulse.checks['ollama']?.ok ?? false;
+  }
+  // Fallback: direct synchronous curl (original behaviour)
   try {
     const result = spawnSync(
       '/usr/bin/curl',
-      [
-        '-s',
-        '--connect-timeout',
-        '5',
-        '--max-time',
-        '8',
-        `${OLLAMA_URL}/api/tags`,
-      ],
+      ['-s', '--connect-timeout', '5', '--max-time', '8', `${OLLAMA_URL}/api/tags`],
       { timeout: 10000 },
     );
     return result.status === 0 && result.stdout.length > 0;
   } catch {
     return false;
   }
+}
+
+// ── Monitor state persistence ────────────────────────
+
+interface PersistedMonitorState {
+  ollamaConsecutiveOk: number;
+  ollamaConsecutiveDown: number;
+  ollamaAlertEnabled: boolean;
+  savedAt: string;
+}
+
+function saveMonitorState(): void {
+  try {
+    const s: PersistedMonitorState = {
+      ollamaConsecutiveOk: state.ollamaConsecutiveOk,
+      ollamaConsecutiveDown: state.ollamaConsecutiveDown,
+      ollamaAlertEnabled: state.ollamaAlertEnabled,
+      savedAt: new Date().toISOString(),
+    };
+    fs.mkdirSync(path.dirname(MONITOR_STATE_PATH), { recursive: true });
+    fs.writeFileSync(MONITOR_STATE_PATH, JSON.stringify(s, null, 2));
+  } catch { /* non-critical */ }
+}
+
+function loadMonitorState(): void {
+  try {
+    const raw = fs.readFileSync(MONITOR_STATE_PATH, 'utf-8');
+    const s = JSON.parse(raw) as PersistedMonitorState;
+    const ageMs = Date.now() - new Date(s.savedAt).getTime();
+    if (ageMs > 15 * 60 * 1000) {
+      logger.info('Monitor state stale (>15 min) — starting fresh');
+      return;
+    }
+    state.ollamaConsecutiveOk = s.ollamaConsecutiveOk;
+    state.ollamaConsecutiveDown = s.ollamaConsecutiveDown;
+    state.ollamaAlertEnabled = s.ollamaAlertEnabled;
+    logger.info(
+      { alertEnabled: s.ollamaAlertEnabled, ok: s.ollamaConsecutiveOk, down: s.ollamaConsecutiveDown },
+      'Restored monitor state',
+    );
+  } catch { /* first run or missing file — start fresh */ }
 }
 
 function checkProcessHealth(): number {
@@ -892,6 +957,7 @@ export function startBackgroundMonitor(
   sendAlert: (text: string) => Promise<void>,
 ): void {
   logger.info('Background monitor started (Tier 1: 5min, Tier 2: 1hr)');
+  loadMonitorState();
 
   const runTier1 = async () => {
     try {
@@ -1033,6 +1099,7 @@ export function startBackgroundMonitor(
           logger.warn({ err }, 'Research agent failed');
         }
       }
+      saveMonitorState();
     } catch (err) {
       logger.error({ err }, 'Background monitor error');
     }

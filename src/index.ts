@@ -541,6 +541,13 @@ async function main(): Promise<void> {
   process.on('SIGTERM', () => shutdown('SIGTERM'));
   process.on('SIGINT', () => shutdown('SIGINT'));
 
+  // Write PID file for health-monitor pid_alive check
+  const pidFile = path.join(process.env.HOME || '', '.config/nanoclaw/nanoclaw.pid');
+  try {
+    fs.mkdirSync(path.dirname(pidFile), { recursive: true });
+    fs.writeFileSync(pidFile, String(process.pid));
+  } catch { /* non-critical */ }
+
   // Handle /remote-control and /remote-control-end commands
   async function handleRemoteControl(
     command: string,
