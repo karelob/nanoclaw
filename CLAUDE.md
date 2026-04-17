@@ -10,7 +10,7 @@ Single Node.js process with skill-based channel system. Channels (WhatsApp, Tele
 
 | File | Purpose |
 |------|---------|
-| `src/index.ts` | Orchestrator: state, message loop, agent invocation |
+| `src/index.ts` | Orchestrator: state, message loop, agent invocation; writes `~/.config/nanoclaw/nanoclaw.pid` |
 | `src/channels/registry.ts` | Channel registry (self-registration at startup) |
 | `src/ipc.ts` | IPC watcher and task processing |
 | `src/router.ts` | Message formatting and outbound routing |
@@ -18,8 +18,10 @@ Single Node.js process with skill-based channel system. Channels (WhatsApp, Tele
 | `src/container-runner.ts` | Spawns agent containers with mounts |
 | `src/task-scheduler.ts` | Runs scheduled tasks |
 | `src/db.ts` | SQLite operations |
+| `src/background-monitor.ts` | Tier 1 health checks (5 min) + Tier 2 Ollama analysis (1 hr); reads `~/.config/nanoclaw/system_pulse.json` |
 | `groups/{name}/CLAUDE.md` | Per-group memory (isolated) |
 | `container/skills/agent-browser.md` | Browser automation tool (available to all agents via Bash) |
+| `docs/health-monitor.md` | Health monitoring integration — architecture, paths, troubleshooting |
 
 ## Skills
 
@@ -172,6 +174,28 @@ launchctl kickstart -k gui/$(id -u)/com.nanoclaw  # restart
 systemctl --user start nanoclaw
 systemctl --user stop nanoclaw
 systemctl --user restart nanoclaw
+```
+
+## Health Monitoring
+
+System health is monitored by two independent layers. See `docs/health-monitor.md` for full details.
+
+**Layer 1 — `health-monitor` binary** (`~/Develop/health-monitor`, launchd, every 5 min):
+- Runs configurable checks (Ollama, NanoClaw PID, Burlak, email/calendar sync, backups)
+- Writes `~/.config/nanoclaw/system_pulse.json`
+- Transition log: `cone/logs/health_pulse.log`
+
+**Layer 2 — `background-monitor.ts`** (in-process, every 5 min):
+- Reads `system_pulse.json`, falls back to curl if stale (> 12 min)
+- Persists Ollama counters to `~/.config/nanoclaw/monitor_state.json` (survives restarts)
+- Writes `knowledge/tracking/system_health.md`
+- Escalates unresolved issues to Telegram after 2 hours
+
+Quick diagnostics:
+```bash
+cat ~/.config/nanoclaw/system_pulse.json | python3 -m json.tool
+launchctl list | grep health-monitor
+cat /tmp/health-monitor-error.log
 ```
 
 ## Troubleshooting

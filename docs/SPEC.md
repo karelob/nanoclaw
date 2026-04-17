@@ -266,7 +266,9 @@ nanoclaw/
 │   ├── mount-security.ts          # Mount allowlist validation for containers
 │   ├── whatsapp-auth.ts           # Standalone WhatsApp authentication
 │   ├── task-scheduler.ts          # Runs scheduled tasks when due
-│   └── container-runner.ts        # Spawns agents in containers
+│   ├── container-runner.ts        # Spawns agents in containers
+│   ├── background-monitor.ts      # Tier 1 health checks + Tier 2 Ollama analysis
+│   └── sync-health.ts             # Sync job freshness checks
 │
 ├── container/
 │   ├── Dockerfile                 # Container image (runs as 'node' user, includes Claude Code CLI)
@@ -708,6 +710,60 @@ launchctl list | grep nanoclaw
 # View logs
 tail -f logs/nanoclaw.log
 ```
+
+---
+
+## Health Monitoring
+
+NanoClaw uses a two-layer health monitoring system. See `docs/health-monitor.md` for full integration details.
+
+### Layer 1 — health-monitor (external process)
+
+A standalone Swift CLI binary managed by launchd runs every 5 minutes and writes a JSON status file. It monitors external dependencies and process health independently of NanoClaw itself:
+
+```
+launchd (every 5 min) → ~/.local/bin/health-monitor
+  reads  ~/.config/health-monitor/config.json     (check definitions)
+  reads  ~/.config/health-monitor/pulse_state.json (last-run timestamps)
+  writes ~/.config/nanoclaw/system_pulse.json      (current status of all checks)
+  writes cone/logs/health_pulse.log                (UP/DOWN transitions)
+```
+
+Source: `~/Develop/health-monitor` (separate git repository, [GitHub](https://github.com/karelob/health-monitor))
+
+### Layer 2 — background-monitor.ts (in-process)
+
+`src/background-monitor.ts` runs two tiers within the NanoClaw process:
+
+**Tier 1 (every 5 min, deterministic):**
+- Reads `system_pulse.json` written by the external health-monitor binary
+- Falls back to direct curl for Ollama if the pulse file is missing or stale (> 12 min)
+- Checks sync job freshness, disk space, backup age, and process memory
+- Detects state changes and creates action items
+- Escalates unresolved issues to Telegram after 2 hours
+- Writes `knowledge/tracking/system_health.md`
+
+**Tier 2 (every hour, AI analysis):**
+- Sends metrics history to Ollama (local LLM)
+- Receives structured JSON analysis (score 1–10, trend, anomalies, recommendations)
+- Appends analysis to `system_health.md`
+- Sends Telegram alert if score < 7
+
+**State persistence:**
+
+Ollama stability counters are written to `~/.config/nanoclaw/monitor_state.json` at the end of each Tier 1 cycle and reloaded at startup. This prevents the 1-hour stability window from restarting every time NanoClaw is updated or restarted.
+
+### PID file
+
+`src/index.ts` writes `~/.config/nanoclaw/nanoclaw.pid` at startup so the external health-monitor binary can verify NanoClaw is running via `pid_alive` check.
+
+### system_health.md
+
+`knowledge/tracking/system_health.md` is the single source of truth for current system health. It is updated every 5 minutes and contains:
+- Current metrics table (Ollama, disk, memory, backup, DB lock)
+- Recent alerts log
+- Action items with assignees (`@agent`, `@cli`, `@karel`)
+- Ollama AI analysis (when available)
 
 ---
 
