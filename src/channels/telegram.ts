@@ -117,8 +117,12 @@ export class TelegramChannel implements Channel {
     });
 
     this.bot.on('message:text', async (ctx) => {
-      // Skip commands
-      if (ctx.message.text.startsWith('/')) return;
+      // Skip Telegram slash commands in group chats only.
+      // In private chat (Karel ↔ bot), /company and similar skill invocations
+      // must reach the agent — they are not Telegram bot commands.
+      const isGroupChat =
+        ctx.chat.type === 'group' || ctx.chat.type === 'supergroup';
+      if (isGroupChat && ctx.message.text.startsWith('/')) return;
 
       // Filter by sender role
       const processType = this._shouldProcess(ctx);
