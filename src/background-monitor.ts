@@ -28,12 +28,7 @@ import path from 'path';
 import { KNOWLEDGE_REPO_PATH, STORE_DIR } from './config.js';
 import { logger } from './logger.js';
 import { runResearchAgent } from './research-agent.js';
-import {
-  checkSyncHealth,
-  getFullHealthReport,
-  SYNC_JOBS,
-  checkJob,
-} from './sync-health.js';
+import { checkDbLock, SYNC_JOBS, checkJob } from './sync-health.js';
 
 const RESEARCH_INTERVAL = 12 * 60 * 60 * 1000; // 12 hours
 const RESEARCH_RETRY_INTERVAL = 10 * 60 * 1000; // 10 min retry when Moltbook is down
@@ -42,7 +37,6 @@ const RESEARCH_RETRY_INTERVAL = 10 * 60 * 1000; // 10 min retry when Moltbook is
 const HOME = process.env.HOME || '/Users/karel';
 const CONE_DB = path.join(HOME, 'Develop/nano-cone/cone/db/cone.db');
 const CONE_LOGS = path.join(HOME, 'Develop/nano-cone/cone/logs');
-const BACKUP_LOG = path.join(CONE_LOGS, 'backup.log');
 const OLLAMA_URL = process.env.OLLAMA_HOST || 'http://10.0.10.70:11434';
 const OLLAMA_MODEL = process.env.OLLAMA_MODEL || 'qwen3.5:9b';
 
@@ -85,14 +79,27 @@ const ALERT_ACTION_MAP: Record<
   { assignee: '@agent' | '@cli' | '@karel'; action: string }
 > = {
   sync: {
-    assignee: '@agent',
-    action:
-      'Zkontrolovat sync log, zkusit opravit. Pokud nelze: vytvořit @cli task',
+    assignee: '@cli',
+    action: 'Diagnostikovat DB lock (cone.db), zabít blokující proces',
   },
-  'email-freshness': {
+  'email-sync-stale': {
     assignee: '@agent',
     action:
       'Zkontrolovat email sync log, zkusit opravit. Pokud nelze: vytvořit @cli task',
+  },
+  'calendar-sync-stale': {
+    assignee: '@agent',
+    action:
+      'Zkontrolovat calendar sync log, zkusit opravit. Pokud nelze: vytvořit @cli task',
+  },
+  'nanoclaw-down': {
+    assignee: '@cli',
+    action:
+      'Diagnostikovat NanoClaw (pidfile/process), restartovat launchd service',
+  },
+  'burlak-stale': {
+    assignee: '@cli',
+    action: 'Zkontrolovat Burlak logy, diagnostikovat proč neběžel',
   },
   disk: { assignee: '@cli', action: 'Diagnostikovat využití disku, vyčistit' },
   'backup-nas': {
@@ -132,18 +139,30 @@ interface MonitorState {
 
 interface MetricsSnapshot {
   ts: string;
-  syncHealth: string | null;
+  // Own checks (not in pulse)
   dbLocked: boolean;
+  dbLockMsg: string | undefined;
   diskFreeGB: number;
   diskUsedPct: number;
   coneDbSizeMB: number;
-  backupNasAgeDays: number;
-  backupNasWarnings: string[];
-  backupB2AgeDays: number;
-  backupB2Warnings: string[];
-  ollamaUp: boolean;
   processMemMB: number;
   errors: string[];
+  // From system_pulse.json (health-monitor binary)
+  pulseAvailable: boolean;
+  ollamaUp: boolean;
+  backupNasOk: boolean;
+  backupNasAgeH: number;
+  backupB2Ok: boolean;
+  backupB2AgeH: number;
+  emailSyncOk: boolean;
+  emailSyncAgeMin: number;
+  calendarSyncOk: boolean;
+  calendarSyncAgeMin: number;
+  burlakOk: boolean;
+  burlakAgeH: number;
+  burlakLastStatus: string;
+  nanoclawOk: boolean;
+  nanoclawError: string;
 }
 
 // Ollama must be up N consecutive checks before we trust it enough to alert on failures
@@ -203,77 +222,6 @@ function checkConeDbSize(): number {
   }
 }
 
-function checkBackupAge(): {
-  nasDays: number;
-  b2Days: number;
-  nasWarnings: string[];
-  b2Warnings: string[];
-} {
-  const result = {
-    nasDays: -1,
-    b2Days: -1,
-    nasWarnings: [] as string[],
-    b2Warnings: [] as string[],
-  };
-  try {
-    const log = fs.readFileSync(BACKUP_LOG, 'utf8');
-    const lines = log.split('\n');
-
-    // Find last NAS "Hotovo" and collect warnings from that run
-    for (let i = lines.length - 1; i >= 0; i--) {
-      if (
-        lines[i].includes('NAS: Hotovo') ||
-        lines[i].includes('NAS: hotovo')
-      ) {
-        const match = lines[i].match(/(\d{4}-\d{2}-\d{2})/);
-        if (match) {
-          result.nasDays = Math.round(
-            (Date.now() - new Date(match[1]).getTime()) / 86400000,
-          );
-          // Scan backwards from Hotovo to "Záloha zahájena" for WARNs
-          for (let j = i - 1; j >= 0; j--) {
-            if (lines[j].includes('=== Záloha zahájena')) break;
-            if (lines[j].includes('WARN:')) {
-              const warnMatch = lines[j].match(/WARN:\s*(.+)/);
-              if (warnMatch) result.nasWarnings.push(warnMatch[1].trim());
-            }
-          }
-          break;
-        }
-      }
-    }
-
-    // Find last B2 "Hotovo" and collect warnings from that run
-    for (let i = lines.length - 1; i >= 0; i--) {
-      if (lines[i].includes('B2: Hotovo') || lines[i].includes('B2: hotovo')) {
-        const match = lines[i].match(/(\d{4}-\d{2}-\d{2})/);
-        if (match) {
-          result.b2Days = Math.round(
-            (Date.now() - new Date(match[1]).getTime()) / 86400000,
-          );
-          for (let j = i - 1; j >= 0; j--) {
-            if (lines[j].includes('=== Záloha zahájena')) break;
-            if (lines[j].includes('WARN:')) {
-              const warnMatch = lines[j].match(/WARN:\s*(.+)/);
-              if (warnMatch) {
-                const warn = warnMatch[1].trim();
-                // NAS nedostupný při B2 fallback = expected, ne chyba B2
-                if (!warn.includes('NAS nedostupný')) {
-                  result.b2Warnings.push(warn);
-                }
-              }
-            }
-          }
-          break;
-        }
-      }
-    }
-  } catch {
-    /* log may not exist */
-  }
-  return result;
-}
-
 const SYSTEM_PULSE_PATH = path.join(HOME, '.config/nanoclaw/system_pulse.json');
 const MONITOR_STATE_PATH = path.join(
   HOME,
@@ -284,6 +232,8 @@ interface SystemPulseCheck {
   ok: boolean;
   latency_ms?: number;
   age_h?: number;
+  age_min?: number;
+  last_status?: string;
   error?: string;
 }
 interface SystemPulse {
@@ -305,14 +255,8 @@ function readSystemPulse(): SystemPulse | null {
   }
 }
 
-// Read Ollama status from health-monitor pulse file.
-// Falls back to direct curl if pulse file is unavailable (health-monitor not running).
-function checkOllama(): boolean {
-  const pulse = readSystemPulse();
-  if (pulse) {
-    return pulse.checks['ollama']?.ok ?? false;
-  }
-  // Fallback: direct synchronous curl (original behaviour)
+// Direct Ollama check via curl — fallback when pulse is stale/unavailable.
+function checkOllamaDirectly(): boolean {
   try {
     const result = spawnSync(
       '/usr/bin/curl',
@@ -423,69 +367,6 @@ function getRecentErrors(): string[] {
   return errors.slice(-10);
 }
 
-/** Check Burlak health — two-tier alerting based on absence + output.
- *
- * Tier 1 (5–12 h, or >12 h with no prior output): log only, no Telegram.
- * Tier 2 (>12 h AND prior run had output): escalate to Telegram.
- *
- * Rationale: Burlak may legitimately have nothing to do — a run that
- * produced no output is expected idle behaviour, not a failure. Only alert
- * when output was expected but the run is missing.
- */
-function checkBurlakHealth(): {
-  key: string;
-  msg: string;
-  logOnly?: boolean;
-} | null {
-  const statusFile = path.join(HOME, '.config/burlak/last_run.json');
-  try {
-    const raw = fs.readFileSync(statusFile, 'utf-8');
-    const status = JSON.parse(raw) as {
-      ts: string;
-      status: 'success' | 'failed';
-      exit_code?: number;
-      had_output?: boolean;
-    };
-    const ageMs = Date.now() - new Date(status.ts).getTime();
-    const ageH = ageMs / (1000 * 60 * 60);
-
-    if (status.status === 'failed') {
-      return {
-        key: 'burlak-failed',
-        msg: `⚠️ Burlak poslední run selhal (exit ${status.exit_code ?? '?'}, ${Math.round(ageH)}h ago)`,
-      };
-    }
-    if (ageH > 12) {
-      // Only escalate to Telegram if the previous run had output (output was expected)
-      const hadOutput = status.had_output !== false; // default true for backwards compat
-      if (hadOutput) {
-        return {
-          key: 'burlak-stale',
-          msg: `⚠️ Burlak neběžel ${Math.round(ageH)}h (očekáváno každé 4h, předchozí run měl výstup)`,
-        };
-      }
-      // Previous run had no output — log only, don't spam Telegram
-      logger.info(
-        { ageH: Math.round(ageH) },
-        'Burlak stale but previous run had no output — log only',
-      );
-      return null;
-    }
-    if (ageH > 5) {
-      // Within 5–12 h: log only, no Telegram alert
-      logger.debug(
-        { ageH: Math.round(ageH) },
-        'Burlak mildly stale, within log-only window',
-      );
-      return null;
-    }
-    return null;
-  } catch {
-    // Status file doesn't exist yet — no alert until first run completes
-    return null;
-  }
-}
-
 const EMAIL_TOKEN_CHECK_FILE = '/tmp/email-token-check.json';
 
 /** Check Gmail send token validity — runs python3 send_email.py --check hourly via temp file */
@@ -525,51 +406,40 @@ function checkEmailToken(): string | null {
   }
 }
 
-/** Check email freshness — newest email should be < 6 hours old for primary account */
-function checkEmailFreshness(): string | null {
-  try {
-    const logPath = path.join(CONE_LOGS, 'email_sync.log');
-    const content = fs.readFileSync(logPath, 'utf-8');
-    const lines = content.split('\n');
-    // Find the last "newest:" line for obluk.com (primary account)
-    for (let i = lines.length - 1; i >= 0; i--) {
-      const match = lines[i].match(
-        /obluk\.com:.*newest:\s*(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2})/,
-      );
-      if (match) {
-        const age = Date.now() - new Date(match[1]).getTime();
-        const ageHours = age / (60 * 60 * 1000);
-        if (ageHours > 6) {
-          return `⚠️ Email sync zastaralý: newest obluk.com email ${Math.round(ageHours)}h starý`;
-        }
-        return null;
-      }
-    }
-  } catch {
-    /* skip */
-  }
-  return null;
-}
-
 function collectMetrics(): MetricsSnapshot {
-  const syncAlert = checkSyncHealth();
   const disk = checkDiskSpace();
-  const backup = checkBackupAge();
+  const dbLockMsg = checkDbLock() ?? undefined;
+  const pulse = readSystemPulse();
+  const ollamaUp = pulse
+    ? (pulse.checks['ollama']?.ok ?? false)
+    : checkOllamaDirectly();
 
   return {
     ts: new Date().toISOString(),
-    syncHealth: syncAlert,
-    dbLocked: syncAlert?.includes('DB Lock') ?? false,
+    // Own checks
+    dbLocked: dbLockMsg !== undefined,
+    dbLockMsg,
     diskFreeGB: disk.freeGB,
     diskUsedPct: disk.usedPct,
     coneDbSizeMB: checkConeDbSize(),
-    backupNasAgeDays: backup.nasDays,
-    backupNasWarnings: backup.nasWarnings,
-    backupB2AgeDays: backup.b2Days,
-    backupB2Warnings: backup.b2Warnings,
-    ollamaUp: checkOllama(),
     processMemMB: checkProcessHealth(),
     errors: getRecentErrors(),
+    // From pulse
+    pulseAvailable: pulse !== null,
+    ollamaUp,
+    backupNasOk: pulse?.checks['backup_nas']?.ok ?? true,
+    backupNasAgeH: pulse?.checks['backup_nas']?.age_h ?? -1,
+    backupB2Ok: pulse?.checks['backup_b2']?.ok ?? true,
+    backupB2AgeH: pulse?.checks['backup_b2']?.age_h ?? -1,
+    emailSyncOk: pulse?.checks['email_sync']?.ok ?? true,
+    emailSyncAgeMin: pulse?.checks['email_sync']?.age_min ?? 0,
+    calendarSyncOk: pulse?.checks['calendar_sync']?.ok ?? true,
+    calendarSyncAgeMin: pulse?.checks['calendar_sync']?.age_min ?? 0,
+    burlakOk: pulse?.checks['burlak']?.ok ?? true,
+    burlakAgeH: pulse?.checks['burlak']?.age_h ?? 0,
+    burlakLastStatus: pulse?.checks['burlak']?.last_status ?? 'unknown',
+    nanoclawOk: pulse?.checks['nanoclaw']?.ok ?? true,
+    nanoclawError: pulse?.checks['nanoclaw']?.error ?? '',
   };
 }
 
@@ -578,25 +448,12 @@ function collectMetrics(): MetricsSnapshot {
 function generateAlerts(m: MetricsSnapshot): { key: string; msg: string }[] {
   const alerts: { key: string; msg: string }[] = [];
 
-  if (m.syncHealth) {
-    alerts.push({ key: 'sync', msg: m.syncHealth });
+  // DB lock (own check — not in pulse)
+  if (m.dbLocked && m.dbLockMsg) {
+    alerts.push({ key: 'sync', msg: m.dbLockMsg });
   }
 
-  const burlakHealth = checkBurlakHealth();
-  if (burlakHealth) {
-    alerts.push(burlakHealth);
-  }
-
-  const emailFreshness = checkEmailFreshness();
-  if (emailFreshness) {
-    alerts.push({ key: 'email-freshness', msg: emailFreshness });
-  }
-
-  const emailToken = checkEmailToken();
-  if (emailToken) {
-    alerts.push({ key: 'email-token', msg: emailToken });
-  }
-
+  // Disk (own check)
   if (m.diskUsedPct > 90) {
     alerts.push({
       key: 'disk',
@@ -604,32 +461,73 @@ function generateAlerts(m: MetricsSnapshot): { key: string; msg: string }[] {
     });
   }
 
-  if (m.backupNasAgeDays > 3) {
-    alerts.push({
-      key: 'backup-nas',
-      msg: `⚠️ NAS backup ${m.backupNasAgeDays} dní starý`,
-    });
+  // Memory (own check)
+  if (m.processMemMB > 1000) {
+    alerts.push({ key: 'memory', msg: `⚠️ NanoClaw ${m.processMemMB}MB RAM` });
   }
 
-  if (m.backupNasWarnings.length > 0) {
-    alerts.push({
-      key: 'backup-nas-warn',
-      msg: `⚠️ NAS backup varování: ${m.backupNasWarnings.join('; ')}`,
-    });
+  // Email token (own check)
+  const emailToken = checkEmailToken();
+  if (emailToken) {
+    alerts.push({ key: 'email-token', msg: emailToken });
   }
 
-  if (m.backupB2AgeDays > 8) {
-    alerts.push({
-      key: 'backup-b2',
-      msg: `⚠️ B2 backup ${m.backupB2AgeDays} dní starý`,
-    });
-  }
+  // Pulse-based checks (skip if pulse unavailable to avoid false alarms)
+  if (m.pulseAvailable) {
+    // NanoClaw health
+    if (!m.nanoclawOk) {
+      alerts.push({
+        key: 'nanoclaw-down',
+        msg: `⚠️ NanoClaw health check FAIL: ${m.nanoclawError}`,
+      });
+    }
 
-  if (m.backupB2Warnings.length > 0) {
-    alerts.push({
-      key: 'backup-b2-warn',
-      msg: `⚠️ B2 backup varování: ${m.backupB2Warnings.join('; ')}`,
-    });
+    // Burlak staleness — two thresholds: >5h log-only, >12h alert
+    if (m.burlakAgeH > 12) {
+      alerts.push({
+        key: 'burlak-stale',
+        msg: `⚠️ Burlak neběžel ${Math.round(m.burlakAgeH)}h (očekáváno každé 4h)`,
+      });
+    } else if (m.burlakAgeH > 5) {
+      logger.debug(
+        { ageH: Math.round(m.burlakAgeH) },
+        'Burlak mildly stale, within log-only window',
+      );
+    }
+
+    // Email sync freshness (threshold: 6h = 360 min)
+    if (!m.emailSyncOk || m.emailSyncAgeMin > 360) {
+      alerts.push({
+        key: 'email-sync-stale',
+        msg: `⚠️ Email sync zastaralý: ${Math.round(m.emailSyncAgeMin)} min`,
+      });
+    }
+
+    // Calendar sync freshness (threshold: 6h)
+    if (!m.calendarSyncOk || m.calendarSyncAgeMin > 360) {
+      alerts.push({
+        key: 'calendar-sync-stale',
+        msg: `⚠️ Calendar sync zastaralý: ${Math.round(m.calendarSyncAgeMin)} min`,
+      });
+    }
+
+    // Backup NAS (threshold: 3 days = 72h)
+    const nasAgeDays = m.backupNasAgeH / 24;
+    if (!m.backupNasOk || nasAgeDays > 3) {
+      alerts.push({
+        key: 'backup-nas',
+        msg: `⚠️ NAS backup ${Math.round(nasAgeDays)} dní starý`,
+      });
+    }
+
+    // Backup B2 (threshold: 8 days = 192h)
+    const b2AgeDays = m.backupB2AgeH / 24;
+    if (!m.backupB2Ok || b2AgeDays > 8) {
+      alerts.push({
+        key: 'backup-b2',
+        msg: `⚠️ B2 backup ${Math.round(b2AgeDays)} dní starý`,
+      });
+    }
   }
 
   // Ollama: track consecutive OK/DOWN checks.
@@ -662,13 +560,6 @@ function generateAlerts(m: MetricsSnapshot): { key: string; msg: string }[] {
     }
   }
 
-  if (m.processMemMB > 1000) {
-    alerts.push({
-      key: 'memory',
-      msg: `⚠️ NanoClaw ${m.processMemMB}MB RAM`,
-    });
-  }
-
   return alerts;
 }
 
@@ -699,19 +590,30 @@ async function runOllamaAnalysis(
     errors: m.errors.length,
   }));
 
+  const nasAgeDays =
+    latest.backupNasAgeH >= 0 ? Math.round(latest.backupNasAgeH / 24) : -1;
+  const b2AgeDays =
+    latest.backupB2AgeH >= 0 ? Math.round(latest.backupB2AgeH / 24) : -1;
+
   const prompt = `System health snapshot (${latest.ts}):
 
 SYNC_JOBS:
 ${syncSummary}
 
+SERVICES:
+  NanoClaw: ${latest.nanoclawOk ? 'ok' : 'FAIL' + (latest.nanoclawError ? ' — ' + latest.nanoclawError : '')}
+  Ollama: ${latest.ollamaUp ? 'up' : 'DOWN'}
+  Burlak: last run ${Math.round(latest.burlakAgeH)}h ago (${latest.burlakLastStatus})
+  Email sync: ${Math.round(latest.emailSyncAgeMin)} min ago${latest.emailSyncOk ? '' : ' ⚠️'}
+  Calendar sync: ${Math.round(latest.calendarSyncAgeMin)} min ago${latest.calendarSyncOk ? '' : ' ⚠️'}
+
 DB: cone.db ${latest.coneDbSizeMB}MB, locked=${latest.dbLocked}
 DISK: ${latest.diskUsedPct}% used, ${latest.diskFreeGB}GB free
 MEMORY: NanoClaw ${latest.processMemMB}MB RSS
-OLLAMA: ${latest.ollamaUp ? 'up' : 'DOWN'}
 
 BACKUP:
-  NAS: last success ${latest.backupNasAgeDays} days ago ${latest.backupNasAgeDays > 7 ? '⚠️ CRITICAL' : ''}${latest.backupNasWarnings.length > 0 ? ' — WARNINGS: ' + latest.backupNasWarnings.join('; ') : ''}
-  B2: last success ${latest.backupB2AgeDays} days ago ${latest.backupB2AgeDays > 7 ? '⚠️' : ''}${latest.backupB2Warnings.length > 0 ? ' — WARNINGS: ' + latest.backupB2Warnings.join('; ') : ''}
+  NAS: last success ${nasAgeDays >= 0 ? nasAgeDays + ' days ago' : 'unknown'}${nasAgeDays > 7 ? ' ⚠️ CRITICAL' : ''}
+  B2: last success ${b2AgeDays >= 0 ? b2AgeDays + ' days ago' : 'unknown'}${b2AgeDays > 7 ? ' ⚠️' : ''}
 
 ERRORS_LAST_24H (${latest.errors.length}):
 ${latest.errors.map((e) => `  - ${e}`).join('\n') || '  none'}
@@ -880,31 +782,33 @@ function processActionClaims(): void {
 function writeHealthReport(metrics: MetricsSnapshot): void {
   try {
     const now = new Date().toISOString().replace('T', ' ').slice(0, 16);
-    let report = `# System Health\n\n> Single source of truth. Updated every 5 min. Last: ${now}.\n> Agents: check Action Items for your assignee (@agent, @cli, @karel).\n\n`;
+    const pulseTag = metrics.pulseAvailable ? '' : ' ⚠️ pulse stale';
+    let report = `# System Health\n\n> Single source of truth. Updated every 5 min. Last: ${now}${pulseTag}.\n> Agents: check Action Items for your assignee (@agent, @cli, @karel).\n\n`;
 
     // ── Current State ──
+    const nasAgeDays =
+      metrics.backupNasAgeH >= 0 ? Math.round(metrics.backupNasAgeH / 24) : -1;
+    const b2AgeDays =
+      metrics.backupB2AgeH >= 0 ? Math.round(metrics.backupB2AgeH / 24) : -1;
     report += `## Stav\n\n`;
     report += `| Metrika | Hodnota | Status |\n|---------|---------|--------|\n`;
     report += `| Disk | ${metrics.diskUsedPct}% (${metrics.diskFreeGB}GB free) | ${metrics.diskUsedPct > 90 ? '⚠️' : '✅'} |\n`;
     report += `| cone.db | ${metrics.coneDbSizeMB} MB | ✅ |\n`;
+    report += `| NanoClaw | ${metrics.nanoclawOk ? 'OK' : 'FAIL'} | ${metrics.nanoclawOk ? '✅' : '❌'} |\n`;
     report += `| NanoClaw RAM | ${metrics.processMemMB} MB | ${metrics.processMemMB > 1000 ? '⚠️' : '✅'} |\n`;
     report += `| Ollama | ${metrics.ollamaUp ? 'up' : 'DOWN'} | ${metrics.ollamaUp ? '✅' : '❌'} |\n`;
-    report += `| Backup NAS | ${metrics.backupNasAgeDays >= 0 ? metrics.backupNasAgeDays + ' days ago' : 'unknown'} | ${metrics.backupNasAgeDays > 3 ? '⚠️' : metrics.backupNasAgeDays >= 0 ? '✅' : '❓'} |\n`;
-    report += `| Backup B2 | ${metrics.backupB2AgeDays >= 0 ? metrics.backupB2AgeDays + ' days ago' : 'unknown'} | ${metrics.backupB2AgeDays > 8 ? '⚠️' : metrics.backupB2AgeDays >= 0 ? '✅' : '❓'} |\n`;
+    report += `| Burlak | ${metrics.burlakAgeH >= 0 ? Math.round(metrics.burlakAgeH) + 'h ago' : 'unknown'} | ${metrics.burlakAgeH > 12 ? '⚠️' : metrics.burlakAgeH > 5 ? '🟡' : '✅'} |\n`;
+    report += `| Email sync | ${metrics.emailSyncAgeMin > 0 ? Math.round(metrics.emailSyncAgeMin) + ' min ago' : 'unknown'} | ${!metrics.emailSyncOk || metrics.emailSyncAgeMin > 360 ? '⚠️' : '✅'} |\n`;
+    report += `| Calendar sync | ${metrics.calendarSyncAgeMin > 0 ? Math.round(metrics.calendarSyncAgeMin) + ' min ago' : 'unknown'} | ${!metrics.calendarSyncOk || metrics.calendarSyncAgeMin > 360 ? '⚠️' : '✅'} |\n`;
+    report += `| Backup NAS | ${nasAgeDays >= 0 ? nasAgeDays + ' days ago' : 'unknown'} | ${nasAgeDays > 3 ? '⚠️' : nasAgeDays >= 0 ? '✅' : '❓'} |\n`;
+    report += `| Backup B2 | ${b2AgeDays >= 0 ? b2AgeDays + ' days ago' : 'unknown'} | ${b2AgeDays > 8 ? '⚠️' : b2AgeDays >= 0 ? '✅' : '❓'} |\n`;
     report += `| DB Lock | ${metrics.dbLocked ? 'YES' : 'no'} | ${metrics.dbLocked ? '⚠️' : '✅'} |\n`;
     report += `| Errors (24h) | ${metrics.errors.length} | ${metrics.errors.length > 0 ? '⚠️' : '✅'} |\n`;
 
     // ── Backup Details ──
     report += `\n## Backup Details\n\n`;
-    report += `**NAS:** poslední úspěch ${metrics.backupNasAgeDays >= 0 ? metrics.backupNasAgeDays + ' dní' : 'neznámo'}`;
-    if (metrics.backupNasWarnings.length > 0) {
-      report += `, varování: ${metrics.backupNasWarnings.join('; ')}`;
-    }
-    report += `\n**B2:** poslední úspěch ${metrics.backupB2AgeDays >= 0 ? metrics.backupB2AgeDays + ' dní' : 'neznámo'}`;
-    if (metrics.backupB2Warnings.length > 0) {
-      report += `, varování: ${metrics.backupB2Warnings.join('; ')}`;
-    }
-    report += '\n';
+    report += `**NAS:** poslední úspěch ${nasAgeDays >= 0 ? nasAgeDays + ' dní' : 'neznámo'}\n`;
+    report += `**B2:** poslední úspěch ${b2AgeDays >= 0 ? b2AgeDays + ' dní' : 'neznámo'}\n`;
 
     // ── Recent Alerts ──
     report += `\n## Recent Alerts\n\n`;

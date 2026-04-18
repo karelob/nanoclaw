@@ -184,7 +184,7 @@ function formatAge(date: Date): string {
 /**
  * Check if cone.db is locked by a long-running process.
  */
-function checkDbLock(): string | null {
+export function checkDbLock(): string | null {
   try {
     const lsofOut = execFileSync(
       'lsof',
