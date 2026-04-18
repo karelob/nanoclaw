@@ -82,28 +82,44 @@ Rationale:
 
 ## How background-monitor.ts reads the pulse file
 
-`src/background-monitor.ts:readSystemPulse()` reads `system_pulse.json` and returns `null` if the file is missing or older than 12 minutes (indicating health-monitor isn't running). The caller `checkOllama()` falls back to a direct `curl` call in that case.
+`src/background-monitor.ts:collectMetrics()` reads `system_pulse.json` once per Tier 1 cycle and maps all service checks into `MetricsSnapshot`. If the file is missing or older than 12 minutes, `pulseAvailable` is `false` and pulse-based alerts are suppressed to avoid false alarms. Ollama additionally falls back to a direct `curl` call when pulse is unavailable.
 
 ```typescript
 // background-monitor.ts — simplified
-function readSystemPulse(): SystemPulse | null {
-  const raw = fs.readFileSync(SYSTEM_PULSE_PATH, 'utf-8');
-  const pulse = JSON.parse(raw) as SystemPulse;
-  const ageMs = Date.now() - new Date(pulse.checked_at).getTime();
-  if (ageMs > 12 * 60 * 1000) return null;   // stale — health-monitor may be down
-  return pulse;
-}
+function collectMetrics(): MetricsSnapshot {
+  const pulse = readSystemPulse();          // null if missing or stale (> 12 min)
+  const ollamaUp = pulse
+    ? (pulse.checks['ollama']?.ok ?? false)
+    : checkOllamaDirectly();               // curl fallback only for Ollama
 
-function checkOllama(): boolean {
-  const pulse = readSystemPulse();
-  if (pulse) return pulse.checks['ollama']?.ok ?? false;
-  // Fallback: direct curl
-  const result = spawnSync('/usr/bin/curl', ['-s', '--connect-timeout', '5', ...]);
-  return result.status === 0 && result.stdout.length > 0;
+  return {
+    // Own checks — not in pulse
+    dbLocked: ..., diskFreeGB: ..., coneDbSizeMB: ..., processMemMB: ..., errors: ...,
+    // From pulse
+    pulseAvailable: pulse !== null,
+    ollamaUp,
+    nanoclawOk:        pulse?.checks['nanoclaw']?.ok ?? true,
+    burlakOk:          pulse?.checks['burlak']?.ok ?? true,
+    burlakAgeH:        pulse?.checks['burlak']?.age_h ?? 0,
+    emailSyncOk:       pulse?.checks['email_sync']?.ok ?? true,
+    emailSyncAgeMin:   pulse?.checks['email_sync']?.age_min ?? 0,
+    calendarSyncOk:    pulse?.checks['calendar_sync']?.ok ?? true,
+    backupNasOk:       pulse?.checks['backup_nas']?.ok ?? true,
+    backupNasAgeH:     pulse?.checks['backup_nas']?.age_h ?? -1,
+    backupB2Ok:        pulse?.checks['backup_b2']?.ok ?? true,
+    backupB2AgeH:      pulse?.checks['backup_b2']?.age_h ?? -1,
+  };
 }
 ```
 
-The 12-minute staleness threshold is generous — health-monitor runs every 5 minutes, so up to two launchd invocations can miss before background-monitor falls back to curl. This handles brief macOS sleep/wake cycles.
+**Separation of concerns:**
+
+| Source | Metrics |
+|--------|---------|
+| `system_pulse.json` (health-monitor) | ollama, nanoclaw, burlak, email_sync, calendar_sync, backup_nas, backup_b2 |
+| background-monitor own checks | disk space, cone.db size, NanoClaw RAM, DB lock (lsof), error log scan |
+
+The 12-minute staleness threshold is generous — health-monitor runs every 5 minutes, so up to two launchd invocations can miss before background-monitor marks pulse unavailable. This handles brief macOS sleep/wake cycles.
 
 ---
 

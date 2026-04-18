@@ -191,7 +191,9 @@ System health is monitored by two independent layers. See `docs/health-monitor.m
 - Transition log: `cone/logs/health_pulse.log`
 
 **Layer 2 — `background-monitor.ts`** (in-process, every 5 min):
-- Reads `system_pulse.json`, falls back to curl if stale (> 12 min)
+- Reads ALL service checks from `system_pulse.json` (ollama, nanoclaw, burlak, backup, email/calendar sync)
+- Own checks only for: disk, cone.db size, RAM, DB lock, error log scan
+- Falls back to direct curl for Ollama if pulse stale (> 12 min); other pulse checks suppressed
 - Persists Ollama counters to `~/.config/nanoclaw/monitor_state.json` (survives restarts)
 - Writes `knowledge/tracking/system_health.md`
 - Escalates unresolved issues to Telegram after 2 hours
