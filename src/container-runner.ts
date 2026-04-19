@@ -110,6 +110,18 @@ function buildVolumeMounts(
         readonly: true,
       });
     }
+
+    // Root cone rules — shared across all agents
+    // CLI and Burlak pick up nano-cone/CLAUDE.md via parent-dir traversal automatically
+    // Containers need an explicit mount so CLAUDE_CODE_ADDITIONAL_DIRECTORIES_CLAUDE_MD loads it
+    const coneRootDir = path.resolve(GROUPS_DIR, '../..');
+    if (fs.existsSync(path.join(coneRootDir, 'CLAUDE.md'))) {
+      mounts.push({
+        hostPath: coneRootDir,
+        containerPath: '/workspace/cone-root',
+        readonly: true,
+      });
+    }
   }
 
   // Per-group Claude sessions directory (isolated from other groups)

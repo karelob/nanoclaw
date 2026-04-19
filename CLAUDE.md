@@ -4,7 +4,7 @@ Personal Claude assistant. See [README.md](README.md) for philosophy and setup. 
 
 ## Quick Context
 
-Single Node.js process with skill-based channel system. Channels (WhatsApp, Telegram, Slack, Discord, Gmail) are skills that self-register at startup. Messages route to Claude Agent SDK running in containers (Linux VMs). Each group has isolated filesystem and memory.
+Single Node.js process with skill-based channel system. Telegram is the core channel; Gmail and WhatsApp are optional skill forks that self-register at startup. Messages route to Claude Agent SDK running in containers (Apple VMs). Each group has isolated filesystem and memory.
 
 ## Key Files
 
@@ -19,6 +19,9 @@ Single Node.js process with skill-based channel system. Channels (WhatsApp, Tele
 | `src/task-scheduler.ts` | Runs scheduled tasks |
 | `src/db.ts` | SQLite operations |
 | `src/background-monitor.ts` | Tier 1 health checks (5 min) + Tier 2 Ollama analysis (1 hr); reads `~/.config/nanoclaw/system_pulse.json` |
+| `src/container-runtime.ts` | Runtime abstraction — swap Apple Container ↔ Docker by changing one file |
+| `src/credential-proxy.ts` | Credential proxy (0.0.0.0:3001) — containers never see the real API key |
+| `src/research-agent.ts` | Background research tier — Moltbook + RSS feeds + Gemini analysis (12h) |
 | `groups/{name}/CLAUDE.md` | Per-group memory (isolated) |
 | `container/skills/agent-browser/SKILL.md` | Browser automation tool (available to all agents via Bash) |
 | `docs/health-monitor.md` | Health monitoring integration — architecture, paths, troubleshooting |
@@ -47,18 +50,11 @@ Single Node.js process with skill-based channel system. Channels (WhatsApp, Tele
 
 **Burlakovy branches NIKDY mergovat bez Karlova explicitního schválení.**
 
-## Memory promotion rules
+## Memory
 
-**DO — ukládat do `~/.claude/projects/.../memory/`:**
-- Explicitní instrukce od Karla ("remember", "from now on", "vždy")
-- Preference ověřené opakovanou zpětnou vazbou (ne jednorázové)
-- Architektonická rozhodnutí ověřená v kódu nebo git historii
+> DO/DO NOT: viz `nano-cone/CLAUDE.md` (auto-načteno z parent dir — sdílená pravidla pro všechny agenty).
 
-**DO NOT — ukládat do memory:**
-- Inference a hypotézy ("Karel pravděpodobně preferuje X")
-- Výsledky nebo stav jedné session bez Karlova potvrzení
-- Cokoliv odvoditelné ze zdrojáku, git history nebo cone.db
-- Ephemeral stav (co aktuálně běží, in-progress work)
+Aktivní session: `knowledge/active_session.md` — max 50 řádků, viz Memory Discipline níže.
 
 ## Tool risk tiers (CLI)
 
@@ -70,7 +66,6 @@ Single Node.js process with skill-based channel system. Channels (WhatsApp, Tele
 - git push, merge do main
 - launchctl load/unload/kickstart
 - Změny LaunchAgent plistů, scheduled tasks v DB
-- sqlite3 write do cone.db
 
 **NEVER bez explicitního pokynu:**
 - `rm -rf`, force push, reset --hard
@@ -96,7 +91,9 @@ shasum -a 256 ~/Develop/nano-cone/nanoclaw/CLAUDE.md | cut -d' ' -f1 > ~/.config
 | Hash soubor | Hlídá |
 |---|---|
 | `~/.config/cli/claude_md.sha256` | `nanoclaw/CLAUDE.md` (tento soubor) |
+| `~/.config/nanoclaw/global_claude_md.sha256` | `groups/global/CLAUDE.md` |
 | `~/.config/nanoclaw/telegram_main_claude_md.sha256` | `groups/telegram_main/CLAUDE.md` |
+| `~/.config/nanoclaw/whatsapp_inbox_claude_md.sha256` | `groups/whatsapp_inbox/CLAUDE.md` |
 | `~/.config/burlak/claude_md.sha256` | `burlak/CLAUDE.md` |
 
 ## Memory Discipline — Active Session Management
@@ -174,29 +171,11 @@ Service management:
 launchctl load ~/Library/LaunchAgents/com.nanoclaw.plist
 launchctl unload ~/Library/LaunchAgents/com.nanoclaw.plist
 launchctl kickstart -k gui/$(id -u)/com.nanoclaw  # restart
-
-# Linux (systemd)
-systemctl --user start nanoclaw
-systemctl --user stop nanoclaw
-systemctl --user restart nanoclaw
 ```
 
 ## Health Monitoring
 
-System health is monitored by two independent layers. See `docs/health-monitor.md` for full details.
-
-**Layer 1 — `health-monitor` binary** (`~/Develop/health-monitor`, launchd, every 5 min):
-- Runs configurable checks (Ollama, NanoClaw PID, Burlak, email/calendar sync, backups)
-- Writes `~/.config/nanoclaw/system_pulse.json`
-- Transition log: `cone/logs/health_pulse.log`
-
-**Layer 2 — `background-monitor.ts`** (in-process, every 5 min):
-- Reads ALL service checks from `system_pulse.json` (ollama, nanoclaw, burlak, backup, email/calendar sync)
-- Own checks only for: disk, cone.db size, RAM, DB lock, error log scan
-- Falls back to direct curl for Ollama if pulse stale (> 12 min); other pulse checks suppressed
-- Persists Ollama counters to `~/.config/nanoclaw/monitor_state.json` (survives restarts)
-- Writes `knowledge/tracking/system_health.md`
-- Escalates unresolved issues to Telegram after 2 hours
+Two independent layers — see `docs/health-monitor.md` for full architecture.
 
 Quick diagnostics:
 ```bash
@@ -207,7 +186,7 @@ cat /tmp/health-monitor-error.log
 
 ## Troubleshooting
 
-**WhatsApp not connecting after upgrade:** WhatsApp is now a separate channel fork, not bundled in core. Run `/add-whatsapp` (or `git remote add whatsapp https://github.com/qwibitai/nanoclaw-whatsapp.git && git fetch whatsapp main && (git merge whatsapp/main || { git checkout --theirs package-lock.json && git add package-lock.json && git merge --continue; }) && npm run build`) to install it. Existing auth credentials and groups are preserved.
+**WhatsApp not connecting after upgrade:** WhatsApp is a separate channel fork, not bundled in core. Run `/add-whatsapp` to install. Existing auth credentials and groups are preserved.
 
 ## Container Build Cache
 
