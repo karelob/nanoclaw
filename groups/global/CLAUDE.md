@@ -60,7 +60,12 @@ Na začátku session přečti `/workspace/extra/knowledge/_catalog.md`.
 ### cone-db MCP server (PREFEROVANÝ)
 
 Tools (prefix `mcp__cone-db__`):
-`db_overview`, `entity_lookup`, `entity_detail`, `entity_relations`, `entity_context`, `email_search`, `email_thread`, `calendar_events`, `commitments_list`, `document_search`, `communications_history`, `semantic_search`, `text_search`, `query`
+
+**Data (read-only):** `db_overview`, `entity_lookup`, `entity_detail`, `entity_relations`, `entity_context`, `email_search`, `email_thread`, `calendar_events`, `commitments_list`, `document_search`, `communications_history`, `semantic_search`, `text_search`, `query`
+
+**Akce (write):**
+- `gmail_send_email`, `gmail_create_draft` — email přes Gmail API
+- `reminders_show`, `reminders_add`, `reminders_complete`, `reminders_list_all` — Apple Reminders přes reminders_helper binary (NIKDY osascript)
 
 Pokud MCP nestačí a musíš použít raw SQL, zapiš důvod do `tracking/improvements.md` (kategorie `mcp-gap`).
 

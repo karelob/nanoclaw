@@ -11,10 +11,7 @@ import path from 'path';
 import { readEnvFile } from './env.js';
 import { logger } from './logger.js';
 
-const envVars = readEnvFile([
-  'OPENAI_API_KEY',
-  'WHISPER_LOCAL_URL',
-]);
+const envVars = readEnvFile(['OPENAI_API_KEY', 'WHISPER_LOCAL_URL']);
 
 /**
  * Transcribe via OpenAI Whisper API (whisper-1).
