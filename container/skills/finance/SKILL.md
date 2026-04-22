@@ -46,16 +46,19 @@ Výstup odešli přímo Karlovi. Pokud příkaz skončí chybou, diagnostikuj a 
 
 ### Cashflow projekce
 ```
-/finance baker cashflow                               # Projekce 3 měsíce dopředu (6 měs. dat)
+/finance baker cashflow                               # Projekce 3 měsíce dopředu (12 měs. dat)
 /finance pinehill cashflow                            # Pinehill cashflow
 /finance all cashflow                                 # Konsolidovaný pohled skupiny (všechny firmy)
 /finance baker cashflow kde jsou největší rizika?     # Projekce s cílenou otázkou
 ```
 
 Cashflow analýza:
-- Načte posledních 6 měsíců bankovních výpisů
-- Rozlišuje: smluvní závazky (z `/contracts` indexu), vzorce z opakování, jednorázové platby
+- Načte posledních 12 měsíců bankovních výpisů (KB, Raiffeisen, Revolut CZK/EUR/USD/GBP)
+- Rozlišuje: smluvní závazky (z `/contracts` indexu + word-overlap matching), vzorce z opakování, jednorázové platby
+- Frekvence: monthly/quarterly/semi-annual/annual (roční = 1× v celém roce ≥10M dat)
+- Životní cyklus: quarterly >5M bez výskytu → UKONČENO; high-value annual bez smlouvy → JEDNORÁZOVÉ
 - Intra-group toky (Baker↔Pinehill↔PineAir↔Karel Obluk) vyznačeny zvlášť, neprojektovány
+- Revolut USD account: Evolution Equity quarterly ($75K/Q) přichází do USD wallet → CZK konverze variabilní
 - Výstup: tabulka projekce měsíc po měsíci + Ollama analýza rizik
 
 ### Ostatní

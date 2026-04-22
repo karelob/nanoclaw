@@ -57,6 +57,21 @@ _IG_NAMES = [
     'pinehouse', 'pine house', 'pineinvest', 'pine invest', 'karel obluk',
 ]
 
+# --- Self-transfer detection (technical, not real cash flow) ---
+# Revolut FX conversions and wallet-to-wallet transfers within the same entity.
+# These should be completely excluded from cashflow — they're balance-neutral operations.
+_SELF_TRANSFER_KEYWORDS = [
+    'main · ',                    # Revolut: "Main · USD –> Main · CZK" etc.
+    'prevod mezi vlastnimi',      # Revolut CZ: wallet transfer to own account
+    'převod mezi vlastními',      # variant with diacritics
+    'vnitřní převod',             # generic internal transfer label
+]
+
+def _is_self_transfer(tx: Transaction) -> bool:
+    """True for Revolut FX conversions and intra-entity wallet transfers."""
+    text = f"{tx.description or ''} {tx.counterparty or ''}".lower()
+    return any(kw in text for kw in _SELF_TRANSFER_KEYWORDS)
+
 
 # --- Data classes ---
 
@@ -148,22 +163,28 @@ def _detect_frequency(months_seen: list, total_months: int) -> str:
 
 
 def _match_contract(counterparty: str, contracts: list) -> object:
-    """Fuzzy counterparty → ContractData match. Returns None if no match."""
+    """Fuzzy counterparty → ContractData match. Prefers entries with explicit payment_frequency."""
     if not contracts:
         return None
     cp = counterparty.lower()
+    matches = []
     for c in contracts:
         cn = (c.counterparty or '').lower()
         if not cn or len(cn) < 4:
             continue
         # Exact substring or prefix match
         if cn in cp or cp.startswith(cn[:10]) or cn.startswith(cp[:10]):
-            return c
+            matches.append(c)
+            continue
         # Word-overlap: ≥2 significant words (len≥4) from contract name appear in counterparty
         cn_words = {w for w in cn.split() if len(w) >= 4}
         if len(cn_words) >= 2 and sum(1 for w in cn_words if w in cp) >= 2:
-            return c
-    return None
+            matches.append(c)
+    if not matches:
+        return None
+    # Prefer entries with explicit payment_frequency (e.g. 'one-time') over empty ones
+    with_freq = [c for c in matches if c.payment_frequency]
+    return with_freq[0] if with_freq else matches[0]
 
 
 def _parse_date_loose(s: str) -> Optional[datetime.date]:
@@ -269,10 +290,14 @@ def classify_transactions(
                       file=sys.stderr)
                 continue
 
+            # Skip FX conversions and intra-entity wallet transfers (balance-neutral, not real cash flow)
+            if _is_self_transfer(tx):
+                continue
+
             ig, ig_label = _is_intragroup(tx)
-            # Don't flag the company's own internal Revolut FX conversions as intragroup
+            # Same-company transfers (e.g. Pinehill Revolut → Pinehill KB) are self-transfers — skip entirely
             if ig and ig_label.lower().replace(' ', '') == company.lower().replace(' ', ''):
-                ig = False
+                continue
             if ig:
                 direction = 'in' if amt > 0 else 'out'
                 bkey = f"ig::{direction}::{ig_label.lower()}"
@@ -302,10 +327,9 @@ def _build_patterns(buckets: dict, total_months: int) -> list:
         c = data['contract']
 
         freq = _detect_frequency(data['months'], total_months)
-        # Contract frequency overrides detected when clear
-        if c and c.payment_frequency in ('monthly', 'quarterly', 'annual'):
-            freq_map = {'monthly': 'monthly', 'quarterly': 'quarterly', 'annual': 'annual'}
-            freq = freq_map[c.payment_frequency]
+        # Contract frequency overrides detected frequency when explicit
+        if c and c.payment_frequency in ('monthly', 'quarterly', 'annual', 'one-time'):
+            freq = c.payment_frequency  # 'one-time' → JEDNORÁZOVÉ even if seen once per year
 
         # High-value single occurrence without contract → treat as one-time, not annual.
         # Car purchases, equipment, property — large amounts that won't recur next year.
