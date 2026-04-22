@@ -469,8 +469,13 @@ def parse_revolut_bank_statement(pdf_path: Path) -> 'BankStatement':
     iban_m = re.search(r'IBAN\s+(LT[\w\s]+)', text)
     iban = iban_m.group(1).replace(' ', '') if iban_m else ''
 
-    currency_m = re.search(r'Měna\s+([A-Z]{3})', text)
-    currency = currency_m.group(1) if currency_m else 'CZK'
+    # Czech ("Měna") or English ("Currency") header; fallback to filename hint (_USD/_EUR/_GBP)
+    currency_m = re.search(r'(?:Měna|Currency)\s+([A-Z]{3})', text)
+    if currency_m:
+        currency = currency_m.group(1)
+    else:
+        stem = pdf_path.stem.upper()
+        currency = 'USD' if '_USD' in stem else 'EUR' if '_EUR' in stem else 'GBP' if '_GBP' in stem else 'CZK'
 
     # Datum výpisu → určí rok
     gen_m = re.search(r'Vygenerováno\s+(\d+)\.\s+(\w+)\s+(\d{4})', text)

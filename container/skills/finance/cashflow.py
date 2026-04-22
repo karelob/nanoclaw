@@ -40,6 +40,16 @@ _MAX_REALISTIC_TX = 5_000_000   # 5M CZK per single transaction
 # Minimum average amount to include in annual/semi-annual section (avoid noise)
 _MIN_PERIODIC_DISPLAY = 500     # Kč
 
+# Approximate FX rates for converting foreign-currency statement amounts to CZK.
+# Updated periodically — used for historical display and projection of USD/EUR/GBP income.
+_FX_RATES: dict = {'USD': 23.5, 'EUR': 25.3, 'GBP': 29.8}
+
+# Entity name normalizations: (substring_to_match, canonical_key).
+# Merges description variants of the same counterparty into one bucket.
+_ENTITY_NORMALIZATIONS: list = [
+    ('evolution equity', 'evolution equity partners'),
+]
+
 # --- Intra-group detection ---
 
 # Account number substrings (search in description text, stripped of separators)
@@ -111,13 +121,22 @@ class CashflowReport:
 
 # --- Helpers ---
 
-def _normalize_counterparty(tx: Transaction) -> str:
+def _normalize_counterparty(tx: Transaction, fx: float = 1.0) -> str:
     name = (tx.counterparty or tx.description or '').strip()
     # Strip IBAN only (CZ + 2 check digits + 16 digits) — preserves Czech account numbers
     name = re.sub(r'\bCZ\d{2}[\d\s]{14,}\b', '', name, flags=re.IGNORECASE)
     # Normalize whitespace
     name = re.sub(r'\s+', ' ', name).strip()
-    return name.lower()[:60] if name else 'unknown'
+    name_lower = name.lower()
+    # Merge entity variants and split fee from expense reimbursements by CZK amount.
+    # Threshold 200 000 Kč: safely above largest reimbursement (~63K) and below smallest fee (~1.76M).
+    for substr, canonical in _ENTITY_NORMALIZATIONS:
+        if substr in name_lower:
+            amt_czk = abs(float(tx.amount)) * fx
+            if amt_czk >= 200_000:
+                return canonical          # quarterly fee bucket
+            return canonical + ' expenses'  # irregular expense bucket
+    return name_lower[:60] if name_lower else 'unknown'
 
 
 def _is_intragroup(tx: Transaction) -> tuple:
@@ -182,9 +201,11 @@ def _match_contract(counterparty: str, contracts: list) -> object:
             matches.append(c)
     if not matches:
         return None
-    # Prefer entries with explicit payment_frequency (e.g. 'one-time') over empty ones
+    # Prefer: (1) has explicit payment_frequency, (2) has non-zero payment_amount (more specific)
     with_freq = [c for c in matches if c.payment_frequency]
-    return with_freq[0] if with_freq else matches[0]
+    pool = with_freq if with_freq else matches
+    with_amount = [c for c in pool if c.payment_amount and c.payment_amount > 0]
+    return with_amount[0] if with_amount else pool[0]
 
 
 def _parse_date_loose(s: str) -> Optional[datetime.date]:
@@ -280,9 +301,16 @@ def classify_transactions(
     last_balance = None
 
     for month_str, stmt in month_stmts:
-        last_balance = float(stmt.closing_balance)
+        # Capture the most recent CZK closing balance (loop is newest-first; take first hit only)
+        if stmt.currency == 'CZK' and last_balance is None:
+            last_balance = float(stmt.closing_balance)
+
+        # FX rate for this statement's currency (1.0 for CZK = no conversion)
+        fx = _FX_RATES.get(stmt.currency, 1.0)
+
         for tx in stmt.transactions:
-            amt = float(tx.amount)
+            # Convert foreign-currency amounts to CZK equivalent
+            amt = float(tx.amount) * fx
             # Skip transactions with unrealistic amounts (Revolut/PDF parse errors)
             if abs(amt) > _MAX_REALISTIC_TX:
                 skipped_outliers += 1
@@ -290,7 +318,9 @@ def classify_transactions(
                       file=sys.stderr)
                 continue
 
-            # Skip FX conversions and intra-entity wallet transfers (balance-neutral, not real cash flow)
+            # Skip FX conversions and intra-entity wallet transfers (balance-neutral, not real cash flow).
+            # The CZK-side of USD→CZK conversions ('main · ') is already captured via the USD income entry
+            # with FX conversion applied — do not count it again from the CZK statement.
             if _is_self_transfer(tx):
                 continue
 
@@ -305,13 +335,14 @@ def classify_transactions(
                 ig_buckets[bkey]['months'].append(month_str)
                 ig_buckets[bkey]['counterparty'] = ig_label
             else:
-                cp = _normalize_counterparty(tx)
+                cp = _normalize_counterparty(tx, fx=fx)
                 direction = 'in' if amt > 0 else 'out'
                 bkey = f"{direction}::{cp}"
                 buckets[bkey]['amounts'].append(amt)
                 buckets[bkey]['months'].append(month_str)
                 buckets[bkey]['counterparty'] = cp
-                if not buckets[bkey]['contract']:
+                # Expense sub-buckets (suffix ' expenses') are reimbursements, not primary obligations
+                if not buckets[bkey]['contract'] and not cp.endswith(' expenses'):
                     buckets[bkey]['contract'] = _match_contract(cp, contracts)
 
     patterns = _build_patterns(buckets, total_months)
@@ -325,10 +356,15 @@ def _build_patterns(buckets: dict, total_months: int) -> list:
         direction = 'in' if key.startswith('in::') else 'out'
         months_unique = sorted(set(data['months']))
         c = data['contract']
+        # Expense sub-buckets (e.g. Evolution reimbursements) — always irregular, never projected
+        cp_key = key.split('::', 1)[-1]
+        is_expense_sub = cp_key.endswith(' expenses')
 
         freq = _detect_frequency(data['months'], total_months)
+        if is_expense_sub:
+            freq = 'irregular'
         # Contract frequency overrides detected frequency when explicit
-        if c and c.payment_frequency in ('monthly', 'quarterly', 'annual', 'one-time'):
+        elif c and c.payment_frequency in ('monthly', 'quarterly', 'annual', 'one-time'):
             freq = c.payment_frequency  # 'one-time' → JEDNORÁZOVÉ even if seen once per year
 
         # High-value single occurrence without contract → treat as one-time, not annual.
@@ -457,6 +493,11 @@ def project_forward(
                     continue
 
             avg = sum(abs(a) for a in p.amounts) / len(p.amounts) if p.amounts else 0
+            # For non-CZK contracts with a known payment amount, use contract amount × FX.
+            # Historical average is distorted by variable expense reimbursements merged into the same bucket.
+            c = p.contract
+            if c and c.payment_amount and c.payment_amount > 0 and c.payment_currency not in ('CZK', ''):
+                avg = c.payment_amount * _FX_RATES.get(c.payment_currency, 1.0)
             label = p.counterparty.title()
             if p.contract:
                 label += ' ✓'
@@ -535,16 +576,28 @@ def format_report(report: CashflowReport) -> str:
     regular = [p for p in active if p.frequency in ('monthly', 'quarterly')]
     periodic = [p for p in active if p.frequency in ('semi-annual', 'annual')]
 
-    rec_in = sorted([p for p in regular if p.direction == 'in'], key=lambda x: -_avg(x.amounts))
-    rec_out = sorted([p for p in regular if p.direction == 'out'], key=lambda x: -_avg(x.amounts))
-    per_in = sorted([p for p in periodic if p.direction == 'in'], key=lambda x: -_avg(x.amounts))
-    per_out = sorted([p for p in periodic if p.direction == 'out'], key=lambda x: -_avg(x.amounts))
+    def _effective_avg(p: PaymentPattern) -> float:
+        c = p.contract
+        if c and c.payment_amount and c.payment_amount > 0 and c.payment_currency not in ('CZK', ''):
+            return c.payment_amount * _FX_RATES.get(c.payment_currency, 1.0)
+        return _avg(p.amounts)
+
+    rec_in = sorted([p for p in regular if p.direction == 'in'], key=lambda x: -_effective_avg(x))
+    rec_out = sorted([p for p in regular if p.direction == 'out'], key=lambda x: -_effective_avg(x))
+    per_in = sorted([p for p in periodic if p.direction == 'in'], key=lambda x: -_effective_avg(x))
+    per_out = sorted([p for p in periodic if p.direction == 'out'], key=lambda x: -_effective_avg(x))
 
     def _row(p: PaymentPattern) -> str:
-        avg = _avg(p.amounts)
+        c = p.contract
+        # For non-CZK contracts with known amount, display contract-based CZK amount + currency note
+        if c and c.payment_amount and c.payment_amount > 0 and c.payment_currency not in ('CZK', ''):
+            avg = c.payment_amount * _FX_RATES.get(c.payment_currency, 1.0)
+            c_tag = f' [smlouva ✓ ~{c.payment_amount:,.0f} {c.payment_currency}/{c.payment_frequency[:1].upper() if c.payment_frequency else "Q"}]'
+        else:
+            avg = _avg(p.amounts)
+            c_tag = ' [smlouva ✓]' if c else ' [vzorec]'
         freq_lbl = _FREQ_LABELS.get(p.frequency, p.frequency)
-        c_tag = ' [smlouva ✓]' if p.contract else ' [vzorec]'
-        end_tag = f'  → konec {p.contract.end_date}' if p.contract and p.contract.end_date else ''
+        end_tag = f'  → konec {c.end_date}' if c and c.end_date else ''
         n = len(set(p.months_seen))
         cp = p.counterparty.title()[:38]
         return f"  {cp:<38}  {_fmt(avg):>14}  {freq_lbl:<12}{c_tag}{end_tag}  ({n}× / {len(report.history_months)} měs.)"
