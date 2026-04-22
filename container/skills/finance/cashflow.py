@@ -154,7 +154,14 @@ def _match_contract(counterparty: str, contracts: list) -> object:
     cp = counterparty.lower()
     for c in contracts:
         cn = (c.counterparty or '').lower()
-        if cn and len(cn) >= 4 and (cn in cp or cp.startswith(cn[:10]) or cn.startswith(cp[:10])):
+        if not cn or len(cn) < 4:
+            continue
+        # Exact substring or prefix match
+        if cn in cp or cp.startswith(cn[:10]) or cn.startswith(cp[:10]):
+            return c
+        # Word-overlap: ≥2 significant words (len≥4) from contract name appear in counterparty
+        cn_words = {w for w in cn.split() if len(w) >= 4}
+        if len(cn_words) >= 2 and sum(1 for w in cn_words if w in cp) >= 2:
             return c
     return None
 
@@ -300,19 +307,32 @@ def _build_patterns(buckets: dict, total_months: int) -> list:
             freq_map = {'monthly': 'monthly', 'quarterly': 'quarterly', 'annual': 'annual'}
             freq = freq_map[c.payment_frequency]
 
+        # High-value single occurrence without contract → treat as one-time, not annual.
+        # Car purchases, equipment, property — large amounts that won't recur next year.
+        avg_amt = sum(abs(a) for a in data['amounts']) / max(len(data['amounts']), 1)
+        if freq == 'annual' and not c and avg_amt > 150_000:
+            freq = 'one-time'
+
         # Lifecycle: expired contract → likely not ongoing
         likely_ongoing = True
         if c and c.end_date:
             ed = _parse_date_loose(c.end_date)
             if ed and ed < datetime.date.today():
                 likely_ongoing = False
-        # One-time in short history: don't project
+
         if months_unique:
             last_m = months_unique[-1]
             today = datetime.date.today()
             last_date = datetime.date(int(last_m[:4]), int(last_m[5:7]), 1)
             months_ago = (today.year - last_date.year) * 12 + (today.month - last_date.month)
-            if months_ago > 2 and freq == 'one-time':
+            # Quarterly pattern not seen for >5 months → terminated (e.g. Vlašic Roman)
+            if freq == 'quarterly' and months_ago > 5 and not c:
+                likely_ongoing = False
+            # Monthly pattern not seen for >3 months → terminated
+            if freq == 'monthly' and months_ago > 3 and not c:
+                likely_ongoing = False
+            # One-time in short history → don't project
+            if freq == 'one-time' and months_ago > 2:
                 likely_ongoing = False
 
         patterns.append(PaymentPattern(
@@ -484,7 +504,8 @@ def format_report(report: CashflowReport) -> str:
 
     # Separate patterns by cadence
     active = [p for p in report.patterns if p.likely_ongoing and p.frequency != 'one-time']
-    inactive = [p for p in report.patterns if not p.likely_ongoing]
+    # UKONČENO = was recurring but stopped; exclude one-time (those go to JEDNORÁZOVÉ only)
+    inactive = [p for p in report.patterns if not p.likely_ongoing and p.frequency != 'one-time']
     one_time = [p for p in report.patterns if p.frequency == 'one-time']
 
     regular = [p for p in active if p.frequency in ('monthly', 'quarterly')]

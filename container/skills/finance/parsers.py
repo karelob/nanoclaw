@@ -519,8 +519,16 @@ def parse_revolut_bank_statement(pdf_path: Path) -> 'BankStatement':
         r'^(\d{1,2})\s+([a-záéíóúůčďěňřšž]{3})\s+(\d{4})\s+(' + _REVOLUT_TYPES + r')\s+(.+)$',
         re.IGNORECASE,
     )
-    # Regex pro extrakci čísel na konci řádku (ignorujeme $, €, £, kód měny)
-    amounts_re = re.compile(r'(?:[$€£])?([\d][\d\s]*\.?\d*)\s+(?:[A-Z]{3})?')
+    # Regex pro extrakci částek na konci řádku.
+    # Dvě varianty:
+    #   1) Prefixovaná měna: $74 982.00  (USD/EUR/GBP — dolar/euro/libra před číslem)
+    #   2) Sufixovaná měna: 1 754.70 CZK  (CZK a jiné — kód za číslem, (?<!\d) zabrání
+    #      sloučení čísla ID stanice jako "0556" s následnou částkou "179.90")
+    amounts_re = re.compile(
+        r'(?:[$€£])(\d[\d\s]*\.\d{2})'               # 1) prefixová: $74 982.00
+        r'|'
+        r'(?<!\d)(\d{1,3}(?:\s\d{3})*\.\d{2})\s+[A-Z]{3}'  # 2) sufixová: 1 754.70 CZK
+    )
 
     transactions = []
     for line in txn_text.split('\n'):
@@ -536,8 +544,9 @@ def parse_revolut_bank_statement(pdf_path: Path) -> 'BankStatement':
             continue
         date = f"{int(day_s):02d}.{mon:02d}.{year_s}"
 
-        # Extrahuj všechna čísla z konce řádku
-        nums = amounts_re.findall(rest)
+        # Extrahuj částky z konce řádku (regex vrací tuple skupin — sloučíme)
+        raw_matches = amounts_re.findall(rest)
+        nums = [g1 or g2 for g1, g2 in raw_matches]
         if not nums:
             continue
 
@@ -554,9 +563,9 @@ def parse_revolut_bank_statement(pdf_path: Path) -> 'BankStatement':
         sign = _REVOLUT_SIGN.get(txn_type.upper(), -1)
         amount = amount * sign
 
-        # Popis — odsekneme čísla z konce
-        desc = re.sub(r'(?:[$€£])?[\d][\d\s]*\.?\d*\s*(?:[A-Z]{3})?\s*$', '', rest).strip()
-        desc = re.sub(r'(?:[$€£])?[\d][\d\s]*\.?\d*\s*(?:[A-Z]{3})?\s*$', '', desc).strip()
+        # Popis — odstraň částky z konce (sufixové i prefixové)
+        desc = re.sub(r'\s+(?:[$€£])?\d[\d\s]*\.\d{2}\s*(?:[A-Z]{3})?\s*$', '', rest).strip()
+        desc = re.sub(r'\s+(?:[$€£])?\d[\d\s]*\.\d{2}\s*(?:[A-Z]{3})?\s*$', '', desc).strip()
         # Odeber typ-prefix pokud přetekl
         desc = desc.strip(' •·–')
 
