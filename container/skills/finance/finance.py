@@ -145,7 +145,7 @@ def parse_args(args: list[str]) -> dict:
     result = {'action': None, 'company': None, 'year': None, 'month': None, 'question': ''}
 
     # Detekce akce
-    known_companies = ['baker', 'pinehill', 'pinehouse', 'pineinvest', 'pineair']
+    known_companies = ['baker', 'pinehill', 'pinehouse', 'pineinvest', 'pineair', 'all']
     actions_map = {
         'výpis': 'bank', 'vypis': 'bank', 'banka': 'bank',
         'faktury': 'invoices', 'faktura': 'invoices',
@@ -266,9 +266,13 @@ def main():
             analysis = analyze_annual_reports(company, year)
             print(f"{context}\n\n--- ANALÝZA ---\n{analysis}")
 
+    elif action == 'cashflow':
+        from cashflow import run_cashflow
+        print(run_cashflow(company or 'all', year, question))
+
     elif action == 'help' or action is None:
         print("Použití: finance.py <firma> <rok/měsíc> <akce>")
-        print("Akce: výpis, faktury, pmd, rozvaha, vzz, výkazy, analýza")
+        print("Akce: výpis, faktury, cashflow, pmd, rozvaha, vzz, výkazy, analýza")
 
     else:
         print(f"⚠️ Akce '{action}' zatím není implementována.")

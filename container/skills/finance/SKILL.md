@@ -44,6 +44,20 @@ Výstup odešli přímo Karlovi. Pokud příkaz skončí chybou, diagnostikuj a 
 /finance baker 2023 analýza jak je na tom firma?       # Analýza s otázkou
 ```
 
+### Cashflow projekce
+```
+/finance baker cashflow                               # Projekce 3 měsíce dopředu (6 měs. dat)
+/finance pinehill cashflow                            # Pinehill cashflow
+/finance all cashflow                                 # Konsolidovaný pohled skupiny (všechny firmy)
+/finance baker cashflow kde jsou největší rizika?     # Projekce s cílenou otázkou
+```
+
+Cashflow analýza:
+- Načte posledních 6 měsíců bankovních výpisů
+- Rozlišuje: smluvní závazky (z `/contracts` indexu), vzorce z opakování, jednorázové platby
+- Intra-group toky (Baker↔Pinehill↔PineAir↔Karel Obluk) vyznačeny zvlášť, neprojektovány
+- Výstup: tabulka projekce měsíc po měsíci + Ollama analýza rizik
+
 ### Ostatní
 ```
 /finance baker roky                                   # Zobrazí dostupné roky
