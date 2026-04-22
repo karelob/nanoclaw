@@ -34,6 +34,12 @@ except ImportError:
 
 ALL_COMPANIES = list(COMPANY_NAMES.keys())
 
+# Transactions above this threshold are almost certainly parse errors (Revolut PDF artefacts)
+_MAX_REALISTIC_TX = 5_000_000   # 5M CZK per single transaction
+
+# Minimum average amount to include in annual/semi-annual section (avoid noise)
+_MIN_PERIODIC_DISPLAY = 500     # Kč
+
 # --- Intra-group detection ---
 
 # Account number substrings (search in description text, stripped of separators)
@@ -92,7 +98,9 @@ class CashflowReport:
 
 def _normalize_counterparty(tx: Transaction) -> str:
     name = (tx.counterparty or tx.description or '').strip()
-    name = re.sub(r'\b\d{6,}\b', '', name)   # strip long account numbers
+    # Strip IBAN only (CZ + 2 check digits + 16 digits) — preserves Czech account numbers
+    name = re.sub(r'\bCZ\d{2}[\d\s]{14,}\b', '', name, flags=re.IGNORECASE)
+    # Normalize whitespace
     name = re.sub(r'\s+', ' ', name).strip()
     return name.lower()[:60] if name else 'unknown'
 
@@ -225,11 +233,13 @@ def classify_transactions(
     month_stmts: list,
     contracts: list,
     total_months: int,
+    company: str = '',
 ) -> tuple:
     """
     Returns (patterns, ig_patterns, last_known_balance).
     patterns = list[PaymentPattern] for non-intragroup transactions
     ig_patterns = list[PaymentPattern] for intragroup transactions
+    company: the company being analyzed — excluded from its own intragroup check
     """
     # Buckets keyed by direction + normalized counterparty
     buckets = defaultdict(lambda: {
@@ -238,23 +248,35 @@ def classify_transactions(
     ig_buckets = defaultdict(lambda: {
         'amounts': [], 'months': [], 'counterparty': ''
     })
+    skipped_outliers = 0
     last_balance = None
 
     for month_str, stmt in month_stmts:
         last_balance = float(stmt.closing_balance)
         for tx in stmt.transactions:
+            amt = float(tx.amount)
+            # Skip transactions with unrealistic amounts (Revolut/PDF parse errors)
+            if abs(amt) > _MAX_REALISTIC_TX:
+                skipped_outliers += 1
+                print(f"  ⚠️  Přeskakuji podezřelou částku: {amt:,.0f} Kč — {tx.counterparty or tx.description}",
+                      file=sys.stderr)
+                continue
+
             ig, ig_label = _is_intragroup(tx)
+            # Don't flag the company's own internal Revolut FX conversions as intragroup
+            if ig and ig_label.lower().replace(' ', '') == company.lower().replace(' ', ''):
+                ig = False
             if ig:
-                direction = 'in' if float(tx.amount) > 0 else 'out'
+                direction = 'in' if amt > 0 else 'out'
                 bkey = f"ig::{direction}::{ig_label.lower()}"
-                ig_buckets[bkey]['amounts'].append(float(tx.amount))
+                ig_buckets[bkey]['amounts'].append(amt)
                 ig_buckets[bkey]['months'].append(month_str)
                 ig_buckets[bkey]['counterparty'] = ig_label
             else:
                 cp = _normalize_counterparty(tx)
-                direction = 'in' if float(tx.amount) > 0 else 'out'
+                direction = 'in' if amt > 0 else 'out'
                 bkey = f"{direction}::{cp}"
-                buckets[bkey]['amounts'].append(float(tx.amount))
+                buckets[bkey]['amounts'].append(amt)
                 buckets[bkey]['months'].append(month_str)
                 buckets[bkey]['counterparty'] = cp
                 if not buckets[bkey]['contract']:
@@ -502,9 +524,11 @@ def format_report(report: CashflowReport) -> str:
         for p in rec_out:
             lines.append(_row(p))
 
-    if per_in or per_out:
+    per_in_show = [p for p in per_in if _avg(p.amounts) >= _MIN_PERIODIC_DISPLAY]
+    per_out_show = [p for p in per_out if _avg(p.amounts) >= _MIN_PERIODIC_DISPLAY]
+    if per_in_show or per_out_show:
         lines.append('\nROČNÍ / POLOLETNÍ PLATBY (projektovány v historickém měsíci):')
-        for p in per_in + per_out:
+        for p in per_in_show + per_out_show:
             sign = '+' if p.direction == 'in' else '-'
             lines.append(f"{sign[0]}{_row_periodic(p)[1:]}")
 
@@ -629,7 +653,7 @@ def run_cashflow(company: str, year: Optional[str] = None, question: str = '') -
         contracts_warn = '' if contracts else f"\n⚠️  Contracts index pro {comp} nenalezen — pro smluvní podklad spusť: /contracts {comp} index"
 
         patterns, ig_patterns, last_balance = classify_transactions(
-            month_stmts, contracts, len(history_months)
+            month_stmts, contracts, len(history_months), company=comp
         )
 
         projections = project_forward(patterns, months_ahead=3, last_balance=last_balance)
