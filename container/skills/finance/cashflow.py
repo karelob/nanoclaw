@@ -117,11 +117,26 @@ def _detect_frequency(months_seen: list, total_months: int) -> str:
     ratio = n / total_months
     if ratio >= 0.75:
         return 'monthly'
-    if 0.3 <= ratio < 0.75:
-        return 'quarterly'
-    if n == 1:
-        return 'one-time'
-    return 'irregular'
+
+    if total_months >= 10:
+        # Full-year context: can detect annual patterns
+        if n >= 3:
+            return 'quarterly'
+        if n == 2:
+            ms = sorted(set(months_seen))
+            ys, mns = int(ms[0][:4]), int(ms[0][5:7])
+            ye, mne = int(ms[-1][:4]), int(ms[-1][5:7])
+            gap = (ye - ys) * 12 + (mne - mns)
+            return 'semi-annual' if gap >= 4 else 'irregular'
+        # n == 1 in a full year — treat as annual, not one-time
+        return 'annual'
+    else:
+        # Short history — can't distinguish annual from one-time
+        if 0.3 <= ratio < 0.75:
+            return 'quarterly'
+        if n == 1:
+            return 'one-time'
+        return 'irregular'
 
 
 def _match_contract(counterparty: str, contracts: list) -> object:
@@ -260,7 +275,7 @@ def _build_patterns(buckets: dict, total_months: int) -> list:
         freq = _detect_frequency(data['months'], total_months)
         # Contract frequency overrides detected when clear
         if c and c.payment_frequency in ('monthly', 'quarterly', 'annual'):
-            freq_map = {'monthly': 'monthly', 'quarterly': 'quarterly', 'annual': 'quarterly'}
+            freq_map = {'monthly': 'monthly', 'quarterly': 'quarterly', 'annual': 'annual'}
             freq = freq_map[c.payment_frequency]
 
         # Lifecycle: expired contract → likely not ongoing
@@ -269,7 +284,7 @@ def _build_patterns(buckets: dict, total_months: int) -> list:
             ed = _parse_date_loose(c.end_date)
             if ed and ed < datetime.date.today():
                 likely_ongoing = False
-        # If last seen was >2 months ago and not monthly, flag uncertain
+        # One-time in short history: don't project
         if months_unique:
             last_m = months_unique[-1]
             today = datetime.date.today()
@@ -321,15 +336,25 @@ def _fires_this_month(pattern: PaymentPattern, target: str) -> bool:
     """Check if a recurring pattern should fire in target (YYYY/MM)."""
     if pattern.frequency == 'monthly':
         return True
+
+    if not pattern.months_seen:
+        return False
+    last = sorted(set(pattern.months_seen))[-1]
+    ty, tm = int(target[:4]), int(target[5:7])
+    ly, lm = int(last[:4]), int(last[5:7])
+    diff = (ty - ly) * 12 + (tm - lm)
+
     if pattern.frequency == 'quarterly':
-        # Base on last observed month — fire every 3 months from there
-        if not pattern.months_seen:
-            return False
-        last = sorted(set(pattern.months_seen))[-1]
-        ty, tm = int(target[:4]), int(target[5:7])
-        ly, lm = int(last[:4]), int(last[5:7])
-        diff = (ty - ly) * 12 + (tm - lm)
         return diff > 0 and diff % 3 == 0
+
+    if pattern.frequency == 'semi-annual':
+        return diff > 0 and diff % 6 == 0
+
+    if pattern.frequency == 'annual':
+        # Fire in the same calendar month(s) as historically observed
+        observed_months = {int(m[5:7]) for m in pattern.months_seen}
+        return tm in observed_months and diff > 0
+
     return False
 
 
@@ -427,23 +452,45 @@ def format_report(report: CashflowReport) -> str:
     if report.last_known_balance is not None:
         lines.append(f"Poslední zůstatek ({_month_label(newest, True)}): {_fmt(report.last_known_balance)}")
 
-    # Separate patterns
+    _FREQ_LABELS = {
+        'monthly': 'měsíčně',
+        'quarterly': 'čtvrtletně',
+        'semi-annual': 'pololetně',
+        'annual': 'ročně',
+        'irregular': 'nepravidelně',
+    }
+
+    # Separate patterns by cadence
     active = [p for p in report.patterns if p.likely_ongoing and p.frequency != 'one-time']
     inactive = [p for p in report.patterns if not p.likely_ongoing]
     one_time = [p for p in report.patterns if p.frequency == 'one-time']
 
-    rec_in = sorted([p for p in active if p.direction == 'in'], key=lambda x: -_avg(x.amounts))
-    rec_out = sorted([p for p in active if p.direction == 'out'], key=lambda x: -_avg(x.amounts))
+    regular = [p for p in active if p.frequency in ('monthly', 'quarterly')]
+    periodic = [p for p in active if p.frequency in ('semi-annual', 'annual')]
+
+    rec_in = sorted([p for p in regular if p.direction == 'in'], key=lambda x: -_avg(x.amounts))
+    rec_out = sorted([p for p in regular if p.direction == 'out'], key=lambda x: -_avg(x.amounts))
+    per_in = sorted([p for p in periodic if p.direction == 'in'], key=lambda x: -_avg(x.amounts))
+    per_out = sorted([p for p in periodic if p.direction == 'out'], key=lambda x: -_avg(x.amounts))
 
     def _row(p: PaymentPattern) -> str:
         avg = _avg(p.amounts)
-        freq_lbl = {'monthly': 'měsíčně', 'quarterly': 'čtvrtletně',
-                    'irregular': 'nepravidelně'}.get(p.frequency, p.frequency)
+        freq_lbl = _FREQ_LABELS.get(p.frequency, p.frequency)
         c_tag = ' [smlouva ✓]' if p.contract else ' [vzorec]'
         end_tag = f'  → konec {p.contract.end_date}' if p.contract and p.contract.end_date else ''
         n = len(set(p.months_seen))
         cp = p.counterparty.title()[:38]
         return f"  {cp:<38}  {_fmt(avg):>14}  {freq_lbl:<12}{c_tag}{end_tag}  ({n}× / {len(report.history_months)} měs.)"
+
+    def _row_periodic(p: PaymentPattern) -> str:
+        avg = _avg(p.amounts)
+        freq_lbl = _FREQ_LABELS.get(p.frequency, p.frequency)
+        c_tag = ' [smlouva ✓]' if p.contract else ' [vzorec ⚠️]'
+        end_tag = f'  → konec {p.contract.end_date}' if p.contract and p.contract.end_date else ''
+        n = len(set(p.months_seen))
+        obs_months = ', '.join(_month_label(m) for m in sorted(set(p.months_seen)))
+        cp = p.counterparty.title()[:38]
+        return f"  {cp:<38}  {_fmt(avg):>14}  {freq_lbl:<12}{c_tag}{end_tag}  ({obs_months})"
 
     if rec_in:
         lines.append('\nPRAVIDELNÉ PŘÍJMY:')
@@ -454,6 +501,12 @@ def format_report(report: CashflowReport) -> str:
         lines.append('\nPRAVIDELNÉ VÝDAJE:')
         for p in rec_out:
             lines.append(_row(p))
+
+    if per_in or per_out:
+        lines.append('\nROČNÍ / POLOLETNÍ PLATBY (projektovány v historickém měsíci):')
+        for p in per_in + per_out:
+            sign = '+' if p.direction == 'in' else '-'
+            lines.append(f"{sign[0]}{_row_periodic(p)[1:]}")
 
     if one_time:
         lines.append('\nJEDNORÁZOVÉ (neprojektovány):')
@@ -502,18 +555,21 @@ def format_report(report: CashflowReport) -> str:
             )
 
         # Confidence
-        n_rec = sum(1 for p in report.patterns if p.frequency != 'one-time')
-        n_contract = sum(1 for p in report.patterns if p.contract and p.frequency != 'one-time')
+        recurring_freqs = ('monthly', 'quarterly', 'semi-annual', 'annual')
+        n_rec = sum(1 for p in report.patterns if p.frequency in recurring_freqs)
+        n_contract = sum(1 for p in report.patterns if p.contract and p.frequency in recurring_freqs)
+        n_annual_unconfirmed = sum(1 for p in report.patterns if p.frequency == 'annual' and not p.contract)
         if n_rec > 0 and n_rec >= 3 and n_contract / max(n_rec, 1) >= 0.5:
             conf = 'Vysoká'
             conf_detail = f'smluvní základ ({n_contract}/{n_rec} vzorců)'
-        elif len(report.history_months) >= 4:
+        elif len(report.history_months) >= 8:
             conf = 'Střední'
-            conf_detail = f'{len(report.history_months)} měs. historická data'
+            conf_detail = f'{len(report.history_months)} měs. dat'
         else:
             conf = 'Nízká'
             conf_detail = f'málo dat ({len(report.history_months)} měs.)'
-        lines.append(f"\nSpolehlivost: {conf} — {conf_detail}")
+        note = f', {n_annual_unconfirmed} ročních vzorců bez smlouvy' if n_annual_unconfirmed else ''
+        lines.append(f"\nSpolehlivost: {conf} — {conf_detail}{note}")
 
     return '\n'.join(lines)
 
@@ -562,11 +618,11 @@ def run_cashflow(company: str, year: Optional[str] = None, question: str = '') -
     parts = []
 
     for comp in companies:
-        print(f"  [{comp}] načítám historii...", file=sys.stderr)
-        month_stmts, history_months = load_history(comp, months_back=6)
+        print(f"  [{comp}] načítám historii (12 měs.)...", file=sys.stderr)
+        month_stmts, history_months = load_history(comp, months_back=12)
 
         if not month_stmts:
-            parts.append(f"\n⚠️  {comp.upper()}: žádné bankovní výpisy nenalezeny za posledních 6 měsíců.")
+            parts.append(f"\n⚠️  {comp.upper()}: žádné bankovní výpisy nenalezeny za posledních 12 měsíců.")
             continue
 
         contracts = load_contracts(comp)
