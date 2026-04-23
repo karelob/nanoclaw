@@ -120,6 +120,10 @@ const ALERT_ACTION_MAP: Record<
     assignee: '@agent',
     action: 'Zkontrolovat B2 backup varování, zkusit opravit',
   },
+  'graph-sync-stale': {
+    assignee: '@cli',
+    action: 'Zkontrolovat ~/Library/Logs/cone/graph-sync.log, spustit graph_sync.sh ručně',
+  },
   ollama: {
     assignee: '@cli',
     action: 'Diagnostikovat Ollama na 10.0.10.70, zkontrolovat síť',
@@ -163,6 +167,9 @@ interface MetricsSnapshot {
   burlakLastStatus: string;
   nanoclawOk: boolean;
   nanoclawError: string;
+  graphSyncOk: boolean;
+  graphSyncAgeH: number;
+  graphSyncLastStatus: string;
 }
 
 // Ollama must be up N consecutive checks before we trust it enough to alert on failures
@@ -440,6 +447,9 @@ function collectMetrics(): MetricsSnapshot {
     burlakLastStatus: pulse?.checks['burlak']?.last_status ?? 'unknown',
     nanoclawOk: pulse?.checks['nanoclaw']?.ok ?? true,
     nanoclawError: pulse?.checks['nanoclaw']?.error ?? '',
+    graphSyncOk: pulse?.checks['graph_sync']?.ok ?? true,
+    graphSyncAgeH: pulse?.checks['graph_sync']?.age_h ?? -1,
+    graphSyncLastStatus: pulse?.checks['graph_sync']?.last_status ?? 'unknown',
   };
 }
 
@@ -528,6 +538,14 @@ function generateAlerts(m: MetricsSnapshot): { key: string; msg: string }[] {
         msg: `⚠️ B2 backup ${Math.round(b2AgeDays)} dní starý`,
       });
     }
+
+    // Graph sync (threshold: 36h — runs nightly 03:30, alert if missed 1.5 days)
+    if (m.graphSyncAgeH >= 0 && (!m.graphSyncOk || m.graphSyncAgeH > 36)) {
+      alerts.push({
+        key: 'graph-sync-stale',
+        msg: `⚠️ Graph sync neběžel ${Math.round(m.graphSyncAgeH)}h (status: ${m.graphSyncLastStatus})`,
+      });
+    }
   }
 
   // Ollama: track consecutive OK/DOWN checks.
@@ -594,6 +612,8 @@ async function runOllamaAnalysis(
     latest.backupNasAgeH >= 0 ? Math.round(latest.backupNasAgeH / 24) : -1;
   const b2AgeDays =
     latest.backupB2AgeH >= 0 ? Math.round(latest.backupB2AgeH / 24) : -1;
+  const graphSyncAgeH =
+    latest.graphSyncAgeH >= 0 ? Math.round(latest.graphSyncAgeH) : -1;
 
   const prompt = `System health snapshot (${latest.ts}):
 
@@ -614,6 +634,7 @@ MEMORY: NanoClaw ${latest.processMemMB}MB RSS
 BACKUP:
   NAS: last success ${nasAgeDays >= 0 ? nasAgeDays + ' days ago' : 'unknown'}${nasAgeDays > 7 ? ' ⚠️ CRITICAL' : ''}
   B2: last success ${b2AgeDays >= 0 ? b2AgeDays + ' days ago' : 'unknown'}${b2AgeDays > 7 ? ' ⚠️' : ''}
+  Graph sync: ${graphSyncAgeH >= 0 ? graphSyncAgeH + 'h ago (' + latest.graphSyncLastStatus + ')' : 'never run'}${graphSyncAgeH > 36 ? ' ⚠️' : ''}
 
 ERRORS_LAST_24H (${latest.errors.length}):
 ${latest.errors.map((e) => `  - ${e}`).join('\n') || '  none'}
@@ -798,6 +819,7 @@ function writeHealthReport(metrics: MetricsSnapshot): void {
     report += `| NanoClaw RAM | ${metrics.processMemMB} MB | ${metrics.processMemMB > 1000 ? '⚠️' : '✅'} |\n`;
     report += `| Ollama | ${metrics.ollamaUp ? 'up' : 'DOWN'} | ${metrics.ollamaUp ? '✅' : '❌'} |\n`;
     report += `| Burlak | ${metrics.burlakAgeH >= 0 ? Math.round(metrics.burlakAgeH) + 'h ago' : 'unknown'} | ${metrics.burlakAgeH > 12 ? '⚠️' : metrics.burlakAgeH > 5 ? '🟡' : '✅'} |\n`;
+    report += `| Graph sync | ${metrics.graphSyncAgeH >= 0 ? Math.round(metrics.graphSyncAgeH) + 'h ago' : 'never'} | ${metrics.graphSyncAgeH < 0 ? '❓' : !metrics.graphSyncOk || metrics.graphSyncAgeH > 36 ? '⚠️' : '✅'} |\n`;
     report += `| Email sync | ${metrics.emailSyncAgeMin > 0 ? Math.round(metrics.emailSyncAgeMin) + ' min ago' : 'unknown'} | ${!metrics.emailSyncOk || metrics.emailSyncAgeMin > 360 ? '⚠️' : '✅'} |\n`;
     report += `| Calendar sync | ${metrics.calendarSyncAgeMin > 0 ? Math.round(metrics.calendarSyncAgeMin) + ' min ago' : 'unknown'} | ${!metrics.calendarSyncOk || metrics.calendarSyncAgeMin > 360 ? '⚠️' : '✅'} |\n`;
     report += `| Backup NAS | ${nasAgeDays >= 0 ? nasAgeDays + ' days ago' : 'unknown'} | ${nasAgeDays > 3 ? '⚠️' : nasAgeDays >= 0 ? '✅' : '❓'} |\n`;
