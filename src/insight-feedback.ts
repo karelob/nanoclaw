@@ -128,9 +128,7 @@ export function tryHandleInsightFeedback(
     // Negative needs a comment for tuning; needs-context also ideally a comment.
     const isNegative = kind !== 'useful';
     if ((isNegative || needsContext) && !comment) {
-      const askFor = needsContext
-        ? 'jaký širší kontext bys čekal'
-        : 'důvod';
+      const askFor = needsContext ? 'jaký širší kontext bys čekal' : 'důvod';
       return {
         reply: `${kind}${ctxTag} (#${insightId}) — díky. Pokud chceš detail (${askFor}): \`${insightId}${kindShort}${needsContext ? 'c' : ''} <text>\``,
       };
