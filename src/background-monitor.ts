@@ -122,7 +122,8 @@ const ALERT_ACTION_MAP: Record<
   },
   'graph-sync-stale': {
     assignee: '@cli',
-    action: 'Zkontrolovat ~/Library/Logs/cone/graph-sync.log, spustit graph_sync.sh ručně',
+    action:
+      'Zkontrolovat ~/Library/Logs/cone/graph-sync.log, spustit graph_sync.sh ručně',
   },
   ollama: {
     assignee: '@cli',
