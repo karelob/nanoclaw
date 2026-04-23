@@ -371,16 +371,19 @@ export function getMessagesSince(
   botPrefix: string,
   limit: number = 200,
 ): NewMessage[] {
-  // Filter bot messages using both the is_bot_message flag AND the content
-  // prefix as a backstop for messages written before the migration ran.
-  // Subquery takes the N most recent, outer query re-sorts chronologically.
+  // Exclude only Šiška's OWN bot messages — IPC outbound from other agents
+  // (CLI, Burlak, scheduled tasks) are stored with is_bot_message=1 but
+  // sender ≠ ASSISTANT_NAME after the 2026-04-23 sender propagation fix.
+  // Šiška must see those in her conversation history so she has context for
+  // Karel's follow-ups. Content prefix backstop covers pre-migration rows.
   const sql = `
     SELECT * FROM (
       SELECT id, chat_jid, sender, sender_name, content, timestamp, is_from_me,
              reply_to_message_id, reply_to_message_content, reply_to_sender_name
       FROM messages
       WHERE chat_jid = ? AND timestamp > ?
-        AND is_bot_message = 0 AND content NOT LIKE ?
+        AND NOT (is_bot_message = 1 AND sender = ?)
+        AND content NOT LIKE ?
         AND content != '' AND content IS NOT NULL
       ORDER BY timestamp DESC
       LIMIT ?
@@ -388,7 +391,13 @@ export function getMessagesSince(
   `;
   return db
     .prepare(sql)
-    .all(chatJid, sinceTimestamp, `${botPrefix}:%`, limit) as NewMessage[];
+    .all(
+      chatJid,
+      sinceTimestamp,
+      botPrefix,
+      `${botPrefix}:%`,
+      limit,
+    ) as NewMessage[];
 }
 
 export function getLastBotMessageTimestamp(
