@@ -174,6 +174,25 @@ async function processGroupMessages(chatJid: string): Promise<boolean> {
 
   if (missedMessages.length === 0) return true;
 
+  // Don't trigger Šiška on agent-to-Karel messages (CLI / Burlak / scheduled
+  // tasks routed through her transport). They belong in her conversation
+  // history as context, but the AGENT decides if/when to react — not us.
+  // Šiška reacts only when an actual user message is in the batch (Karel
+  // himself or another human). Cursor still advances so we don't re-process.
+  const hasUserMessage = missedMessages.some(
+    (m) => m.is_from_me || (!m.is_bot_message && m.sender !== ASSISTANT_NAME),
+  );
+  if (!hasUserMessage) {
+    lastAgentTimestamp[chatJid] =
+      missedMessages[missedMessages.length - 1].timestamp;
+    saveState();
+    logger.debug(
+      { chatJid, count: missedMessages.length },
+      'Skipping Šiška spawn — no user message in batch (only agent IPC)',
+    );
+    return true;
+  }
+
   // For non-main groups, check if trigger is required and present
   if (!isMainGroup && group.requiresTrigger !== false) {
     const allowlistCfg = loadSenderAllowlist();
@@ -726,7 +745,8 @@ async function main(): Promise<void> {
       // scheduled task sent on Šiška's transport, store with that sender so
       // Šiška does NOT mistake it for her own output. Default to ASSISTANT_NAME
       // when sender is missing (legacy callers).
-      const effectiveSender = sender && sender.trim() ? sender.trim() : ASSISTANT_NAME;
+      const effectiveSender =
+        sender && sender.trim() ? sender.trim() : ASSISTANT_NAME;
       storeMessage({
         id: `bot-ipc-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
         chat_jid: jid,
