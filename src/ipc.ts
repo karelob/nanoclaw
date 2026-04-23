@@ -11,7 +11,7 @@ import { logger } from './logger.js';
 import { RegisteredGroup } from './types.js';
 
 export interface IpcDeps {
-  sendMessage: (jid: string, text: string) => Promise<void>;
+  sendMessage: (jid: string, text: string, sender?: string) => Promise<void>;
   registeredGroups: () => Record<string, RegisteredGroup>;
   registerGroup: (jid: string, group: RegisteredGroup) => void;
   syncGroups: (force: boolean) => Promise<void>;
@@ -81,9 +81,16 @@ export function startIpcWatcher(deps: IpcDeps): void {
                   isMain ||
                   (targetGroup && targetGroup.folder === sourceGroup)
                 ) {
-                  await deps.sendMessage(data.chatJid, data.text);
+                  // Propagate sender so Šiška sees who actually authored the
+                  // message in her conversation history (CLI / Burlak / scheduled
+                  // task — not herself). Default to no override.
+                  await deps.sendMessage(
+                    data.chatJid,
+                    data.text,
+                    typeof data.sender === 'string' ? data.sender : undefined,
+                  );
                   logger.info(
-                    { chatJid: data.chatJid, sourceGroup },
+                    { chatJid: data.chatJid, sourceGroup, sender: data.sender },
                     'IPC message sent',
                   );
                 } else {

@@ -629,9 +629,11 @@ async function main(): Promise<void> {
           const channel = channels.find(
             (c) => c.ownsJid(chatJid) && c.isConnected(),
           );
-          channel?.sendMessage(chatJid, result.reply).catch((err) =>
-            logger.error({ err, chatJid }, 'Insight feedback reply failed'),
-          );
+          channel
+            ?.sendMessage(chatJid, result.reply)
+            .catch((err) =>
+              logger.error({ err, chatJid }, 'Insight feedback reply failed'),
+            );
           return;
         }
       }
@@ -716,15 +718,20 @@ async function main(): Promise<void> {
     },
   });
   startIpcWatcher({
-    sendMessage: (jid, text) => {
+    sendMessage: (jid, text, sender) => {
       const channel = findChannel(channels, jid);
       if (!channel) throw new Error(`No channel for JID: ${jid}`);
-      // Store IPC-initiated outbound messages so Šiška sees them in conversation history
+      // Store IPC-initiated outbound messages so Šiška sees them in
+      // conversation history. Honor the IPC sender field — if a CLI / Burlak /
+      // scheduled task sent on Šiška's transport, store with that sender so
+      // Šiška does NOT mistake it for her own output. Default to ASSISTANT_NAME
+      // when sender is missing (legacy callers).
+      const effectiveSender = sender && sender.trim() ? sender.trim() : ASSISTANT_NAME;
       storeMessage({
         id: `bot-ipc-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
         chat_jid: jid,
-        sender: ASSISTANT_NAME,
-        sender_name: ASSISTANT_NAME,
+        sender: effectiveSender,
+        sender_name: effectiveSender,
         content: text,
         timestamp: new Date().toISOString(),
         is_from_me: false,
