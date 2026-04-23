@@ -72,6 +72,7 @@ NanoClaw startup (src/index.ts)
 | `calendar_sync` | `log_fresh` | 30 min | max 30 min old | `cone/logs/calendar_sync.log` |
 | `backup_b2` | `log_fresh` | 12 hr | max 168 h (7 d) | `cone/logs/backup.log` matching `B2.*OK` |
 | `backup_nas` | `log_fresh` | 12 hr | max 48 h (2 d) | `cone/logs/backup.log` matching `NAS.*OK` |
+| `graph_sync` | `status_file` | 1 hr | max 36 h old | `~/.config/cone/graph_last_run.json` |
 
 Rationale:
 - Ollama and NanoClaw are cheap to check (HTTP + pidfile) — every 5 min is safe
