@@ -59,6 +59,7 @@ import {
 } from './sender-allowlist.js';
 import { startBackgroundMonitor } from './background-monitor.js';
 import { handleHostCommand } from './host-commands.js';
+import { tryHandleInsightFeedback } from './insight-feedback.js';
 import { runPostContainerHook } from './post-container.js';
 import { checkSyncHealth } from './sync-health.js';
 import { startSchedulerLoop } from './task-scheduler.js';
@@ -618,6 +619,21 @@ async function main(): Promise<void> {
           logger.error({ err, chatJid }, 'Remote control command error'),
         );
         return;
+      }
+
+      // Insight feedback (Phase 3 reasoning loop eval) — main group only,
+      // and only for messages Karel sends himself.
+      if (msg.is_from_me && registeredGroups[chatJid]?.isMain) {
+        const result = tryHandleInsightFeedback(trimmed);
+        if (result) {
+          const channel = channels.find(
+            (c) => c.ownsJid(chatJid) && c.isConnected(),
+          );
+          channel?.sendMessage(chatJid, result.reply).catch((err) =>
+            logger.error({ err, chatJid }, 'Insight feedback reply failed'),
+          );
+          return;
+        }
       }
 
       // Sender allowlist drop mode: discard messages from denied senders before storing
