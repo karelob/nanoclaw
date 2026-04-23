@@ -640,9 +640,13 @@ async function main(): Promise<void> {
         return;
       }
 
-      // Insight feedback (Phase 3 reasoning loop eval) — main group only,
-      // and only for messages Karel sends himself.
-      if (msg.is_from_me && registeredGroups[chatJid]?.isMain) {
+      // Insight feedback (Phase 3 reasoning loop eval) — main group only.
+      // The main group is 1:1 with Karel; any non-bot message there is from
+      // him. NOTE: do NOT use is_from_me — that's the bot's perspective, so
+      // Karel's incoming messages are always is_from_me=false. This flag was
+      // wrong from the first version of the handler (commit f10243f) and
+      // silently swallowed every feedback message.
+      if (!msg.is_bot_message && registeredGroups[chatJid]?.isMain) {
         const result = tryHandleInsightFeedback(trimmed);
         if (result) {
           const channel = channels.find(
