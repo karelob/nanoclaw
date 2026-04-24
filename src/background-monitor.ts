@@ -671,9 +671,9 @@ Analyze. Output JSON only:
         [
           '-s',
           '--connect-timeout',
-          '10',
+          '30',
           '--max-time',
-          '60',
+          '120',
           '-X',
           'POST',
           `${OLLAMA_URL}/api/chat`,
@@ -682,7 +682,7 @@ Analyze. Output JSON only:
           '-d',
           `@${tmpPayload}`,
         ],
-        { timeout: 65_000, encoding: 'utf8' },
+        { timeout: 125_000, encoding: 'utf8' },
       );
       const data = JSON.parse(stdout) as { message?: { content?: string } };
       return data.message?.content?.trim() || null;
