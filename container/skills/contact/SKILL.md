@@ -10,9 +10,15 @@ Tento skill je CLI-only — používá cone-db MCP místo přímých sqlite3 dot
 
 ## Krok 1 — Najít entitu
 
-Zavolej `entity_lookup` s `query="$ARGUMENTS"` a `type="person"`.
+Zavolej `mcp__cone-db__entity_lookup` s `query="$ARGUMENTS"` a `type="person"`.
 
 Pokud více výsledků → vyber nejrelevantnější. Pokud nejednoznačné → vypiš možnosti a zeptej se.
+
+**KRITICKÉ pravidlo — žádná fabrikace:**
+Pokud `entity_lookup` vrátí `count: 0` nebo error:
+1. Napiš Karlovi přesně: *"cone-db nevrátil žádnou entitu pro dotaz `$ARGUMENTS`. Zkus jinou variantu jména nebo přidej diakritiku."*
+2. **ZASTAV SE — nevytvářej profil.** Nikdy nesestavuj profil z emailové domény, training-memory nebo obecných znalostí. Nikdy nevymýšlej fakta o osobě, kterou cone-db neeviduje.
+3. Před každým faktem v profilu si odpověz: *"Viděl jsem tento údaj v MCP odpovědi?"* Pokud ne, fakt **tam nesmí být**.
 
 Zapiš `entity_id` — použiješ ho ve všech dalších krocích.
 
