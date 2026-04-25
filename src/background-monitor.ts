@@ -38,7 +38,7 @@ const HOME = process.env.HOME || '/Users/karel';
 const CONE_DB = path.join(HOME, 'Develop/nano-cone/cone/db/cone.db');
 const CONE_LOGS = path.join(HOME, 'Develop/nano-cone/cone/logs');
 const OLLAMA_URL = process.env.OLLAMA_HOST || 'http://10.0.10.70:11434';
-const OLLAMA_MODEL = process.env.OLLAMA_MODEL || 'qwen3.5:9b';
+const OLLAMA_MODEL = process.env.OLLAMA_MODEL || 'qwen3:8b';
 
 const TIER1_INTERVAL = 5 * 60 * 1000; // 5 minutes
 const TIER2_INTERVAL = 60 * 60 * 1000; // 1 hour
