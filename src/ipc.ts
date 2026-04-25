@@ -75,11 +75,14 @@ export function startIpcWatcher(deps: IpcDeps): void {
             try {
               const data = JSON.parse(fs.readFileSync(filePath, 'utf-8'));
               if (data.type === 'message' && data.chatJid && data.text) {
-                // Authorization: verify this group can send to this chatJid
+                // Authorization: verify this group can send to this chatJid.
+                // Both branches require targetGroup to exist — main groups
+                // must not bypass the registered_groups check (would leak
+                // messages to obsolete/unregistered JIDs).
                 const targetGroup = registeredGroups[data.chatJid];
                 if (
-                  isMain ||
-                  (targetGroup && targetGroup.folder === sourceGroup)
+                  targetGroup &&
+                  (isMain || targetGroup.folder === sourceGroup)
                 ) {
                   // Propagate sender so Šiška sees who actually authored the
                   // message in her conversation history (CLI / Burlak / scheduled
