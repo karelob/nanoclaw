@@ -695,7 +695,21 @@ Analyze. Output JSON only:
     }
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
-    logger.warn({ error: msg.slice(0, 300) }, 'Ollama analysis failed');
+    const e = err as NodeJS.ErrnoException & {
+      status?: number;
+      stderr?: Buffer | string;
+      stdout?: Buffer | string;
+    };
+    logger.warn(
+      {
+        error: msg.slice(0, 300),
+        code: e.code,
+        status: e.status,
+        stderr: String(e.stderr ?? '').slice(0, 500),
+        stdout: String(e.stdout ?? '').slice(0, 500),
+      },
+      'Ollama analysis failed',
+    );
     return null;
   }
 }
